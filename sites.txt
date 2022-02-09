@@ -1,0 +1,3 @@
+https://pocoz.gitbooks.io/django-v-primerah/content/glava-7-sozdanie-internet-magazina/sozdanie-korzini/ispolzovanie-sessii-django.html
+https://django.fun/docs/django/ru/3.2/topics/http/sessions/
+https://ilyachch.gitbook.io/django-rest-framework-russian-documentation/overview/navigaciya-po-api/generic-views
