@@ -16,15 +16,18 @@ from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommis
 
 def check_role(user, role_name):
     """ Проверяет, совпадает ли роль пользователя с заданной через параметр role_name """
-    member = Member.objects.select_related('role').get(user=user)
-    if member.role.role_name == role_name:
-        return True
-    return False
+    try:
+        member = Member.objects.select_related('role').get(user=user)
+        if member.role.role_name == role_name:
+            return True
+        return False
+    except Exception:
+        return False
 
 
 def check_permission_decorator(role_name=None):
-    """ Декоратор, который проверяет роль пользователя с заданной через параметр role_name """
-
+    """ Кидает исключение PermissionDenied, если роль user!=role_name
+    или текущий пользователь не является пользователем с переданным pk"""
     def decorator(func):
         def wrapper(self, request, pk, *args, **kwargs):
             if request.user.member.role.role_name == role_name:

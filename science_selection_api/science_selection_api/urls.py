@@ -22,8 +22,8 @@ from science_selection_api import settings
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api-auth/', include('rest_framework.urls')),
-    path('api/account/', include('account.urls')),
-    path('api/application/', include('application.urls')),
+    path('api/', include('account.urls')),
+    path('api/', include('application.urls')),
 
 ]
 if settings.DEBUG:
