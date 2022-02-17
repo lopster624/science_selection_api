@@ -22,15 +22,11 @@ class EducationListSerializer(serializers.ModelSerializer):
 
 
 class EducationDetailSerializer(serializers.ModelSerializer):
-    education_type = serializers.CharField(source='get_education_type_display')
+    education_type_display = serializers.CharField(source='get_education_type_display', read_only=True)
 
     class Meta:
         model = Education
         fields = '__all__'
-
-    def create(self, validated_data):
-        print(validated_data)
-        return Education(**validated_data)
 
 
 class MemberListSerialiser(serializers.ModelSerializer):
@@ -68,7 +64,7 @@ class ApplicationListSerializer(serializers.ModelSerializer):
 
 
 class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
-    draft_season = serializers.CharField(source='get_draft_season_display')
+    draft_season = serializers.CharField(source='get_draft_season_display', read_only=True)
     is_final = serializers.BooleanField(read_only=True)
     member = MemberListSerialiser(read_only=True)
     education = EducationDetailSerializer(many=True, read_only=True)
@@ -81,12 +77,20 @@ class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
 
 class ApplicationMasterDetailSerializer(serializers.ModelSerializer):
     member = MemberListSerialiser(read_only=True)
-    draft_season = serializers.CharField(source='get_draft_season_display')
+    draft_season_display = serializers.CharField(source='get_draft_season_display', read_only=True)
     education = EducationDetailSerializer(many=True, read_only=True)
 
     class Meta:
         model = Application
         exclude = ('directions', 'competencies')
+        extra_kwargs = {'final_score': {'read_only': True}, 'fullness': {'read_only': True}}
+        # Todo: проверять, что is_final и work_group мастер может прожать только после брони.
+
+
+class ApplicationWorkGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Application
+        fields = ('work_group',)
 
 
 class ChooseDirectionListSerializer(serializers.ListSerializer):
