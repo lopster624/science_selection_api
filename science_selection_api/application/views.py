@@ -3,10 +3,10 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from application.models import Application, Direction
+from application.models import Application, Direction, Education
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
-    ApplicationMasterDetailSerializer
+    ApplicationMasterDetailSerializer, EducationDetailSerializer
 from application.utils import check_role
 from utils import constants as const
 
@@ -62,3 +62,10 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         elif check_role(self.request.user, const.MASTER_ROLE_NAME):
             return self.master_serializers.get(self.action, self.default_master_serializer_class)
         raise PermissionDenied('Доступ для пользователя без роли запрещен')
+
+
+class EducationViewSet(viewsets.ModelViewSet):
+    serializer_class = EducationDetailSerializer
+
+    def get_queryset(self):
+        return Education.objects.filter(application=self.kwargs['application_pk'])

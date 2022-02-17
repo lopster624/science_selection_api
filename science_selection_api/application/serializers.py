@@ -28,6 +28,10 @@ class EducationDetailSerializer(serializers.ModelSerializer):
         model = Education
         fields = '__all__'
 
+    def create(self, validated_data):
+        print(validated_data)
+        return Education(**validated_data)
+
 
 class MemberListSerialiser(serializers.ModelSerializer):
     user = UserListSerializer()
