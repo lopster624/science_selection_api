@@ -3,10 +3,12 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from application.models import Application, Direction, Education
+from application.models import Application, Direction, Education, ApplicationCompetencies, Competence
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
-    ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer
+    ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
+    ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, CompetenceSerializer, \
+    ApplicationCompetenciesCreateSerializer
 from application.utils import check_role
 from utils import constants as const
 
@@ -32,19 +34,25 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         'get_work_group': ApplicationWorkGroupSerializer,
         'set_work_group': ApplicationWorkGroupSerializer,
         'list': ApplicationListSerializer,
+        'create': ApplicationMasterCreateSerializer,
+        'get_competences_list': CompetenceSerializer,
+
     }
     default_master_serializer_class = ApplicationMasterDetailSerializer
     slave_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
         'set_chosen_direction_list': ChooseDirectionSerializer,
+        'create': ApplicationSlaveCreateSerializer,
         'list': ApplicationListSerializer,
+        'get_competences_list': CompetenceSerializer,
+        'set_competences_list': ApplicationCompetenciesCreateSerializer
     }
     default_slave_serializer_class = ApplicationSlaveDetailSerializer
 
     def get_serializer_class(self):
         if check_role(self.request.user, const.SLAVE_ROLE_NAME):
             return self.slave_serializers.get(self.action, self.default_slave_serializer_class)
-        elif check_role(self.request.user, const.MASTER_ROLE_NAME):
+        elif self.request.user.is_superuser or check_role(self.request.user, const.MASTER_ROLE_NAME):
             return self.master_serializers.get(self.action, self.default_master_serializer_class)
         raise PermissionDenied('Доступ для пользователя без роли запрещен')
 
@@ -75,6 +83,24 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         """Сохраняет выбранную рабочую группу пользователя с анкетой pk=pk"""
         # TODO: Проверять, что заявка забронирована на данное направление и это рабочая группа данного направления.
         serializer = ApplicationWorkGroupSerializer(self.get_object(), data=request.data, partial=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='competences')
+    def get_competences_list(self, request, pk=None):
+        """Отдает список всех оцененных компетенций пользователя с анкетой pk=pk"""
+        queryset = Competence.objects.filter(competence_value__application=pk)
+        serializer = CompetenceSerializer(queryset, many=True, context={'app_id': pk})
+        return Response(serializer.data)
+
+    @get_competences_list.mapping.post
+    def set_competences_list(self, request, pk=None):
+        """
+        todo: Проверять, что свои компетенции может менять только владелец анкеты. И только если анкета не заблокирована
+        """
+        """Сохраняет выбранные компетенции пользователя с анкетой pk=pk"""
+        serializer = ApplicationCompetenciesCreateSerializer(data=request.data, many=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)

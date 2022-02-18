@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from account.models import Member
 from utils import constants as const
-from .models import Application, Direction, Education
+from .models import Application, Direction, Education, Competence, ApplicationCompetencies
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -50,7 +50,7 @@ class DirectionListSerializer(serializers.ModelSerializer):
 
 
 class ApplicationListSerializer(serializers.ModelSerializer):
-    member = MemberListSerialiser()
+    member = MemberListSerialiser(read_only=True)
     education = EducationListSerializer(many=True)
     draft_season = serializers.CharField(source='get_draft_season_display')
     directions = DirectionListSerializer(many=True)
@@ -63,26 +63,49 @@ class ApplicationListSerializer(serializers.ModelSerializer):
         )
 
 
+class ApplicationMasterCreateSerializer(serializers.ModelSerializer):
+    """ Создание анкеты мастером """
+
+    class Meta:
+        model = Application
+        exclude = ('directions', 'competencies', 'fullness', 'final_score', 'is_final', 'work_group')
+
+
+class ApplicationSlaveCreateSerializer(serializers.ModelSerializer):
+    """ Создание анкеты кандидатом"""
+
+    class Meta:
+        model = Application
+        exclude = (
+            'directions', 'compliance_prior_direction', 'compliance_additional_direction',
+            'postgraduate_additional_direction', 'postgraduate_prior_direction', 'competencies', 'fullness',
+            'final_score', 'is_final', 'work_group',
+        )
+
+
 class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
     draft_season = serializers.CharField(source='get_draft_season_display', read_only=True)
     is_final = serializers.BooleanField(read_only=True)
     member = MemberListSerialiser(read_only=True)
     education = EducationDetailSerializer(many=True, read_only=True)
+    directions = DirectionDetailSerializer(read_only=True, many=True)
 
     class Meta:
         model = Application
-        exclude = ('compliance_prior_direction', 'compliance_additional_direction', 'postgraduate_additional_direction',
-                   'postgraduate_prior_direction', 'directions', 'competencies', 'work_group')
+        exclude = ('compliance_prior_direction', 'compliance_additional_direction',
+                   'postgraduate_additional_direction', 'postgraduate_prior_direction', 'competencies', 'fullness',
+                   'final_score', 'work_group', 'create_date', 'update_date')
 
 
 class ApplicationMasterDetailSerializer(serializers.ModelSerializer):
     member = MemberListSerialiser(read_only=True)
     draft_season_display = serializers.CharField(source='get_draft_season_display', read_only=True)
     education = EducationDetailSerializer(many=True, read_only=True)
+    directions = DirectionDetailSerializer(read_only=True, many=True)
 
     class Meta:
         model = Application
-        exclude = ('directions', 'competencies')
+        exclude = ('competencies', 'create_date', 'update_date')
         extra_kwargs = {'final_score': {'read_only': True}, 'fullness': {'read_only': True}}
         # Todo: проверять, что is_final и work_group мастер может прожать только после брони.
 
@@ -121,3 +144,73 @@ class ChooseDirectionSerializer(serializers.ModelSerializer):
         model = Direction
         fields = ('id',)
         list_serializer_class = ChooseDirectionListSerializer
+
+
+class RecursiveFieldSerializer(serializers.Serializer):
+    """ Рекурсивно выводит дочерние компетенции"""
+
+    def to_representation(self, value):
+        serializer = self.parent.parent.__class__(value, context=self.context)
+        return serializer.data
+
+
+class FilteredCompetenceListSerializer(serializers.ListSerializer):
+    """ Выводит только корневые компетенции"""
+
+    def to_representation(self, data):
+        data = data.filter(parent_node=None)
+        return super().to_representation(data)
+
+
+class FilteredAppCompListSerializer(serializers.ListSerializer):
+    """ Выводит только оценки текущего пользователя"""
+
+    def to_representation(self, data):
+        data = data.filter(application=self.context.get("app_id"))
+        return super().to_representation(data)
+
+
+class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
+    """
+    Выводит только список уровней владения компетенцией.
+    С помощью FilteredAppCompListSerializer этот список сокращается только до одного уровня.
+    """
+
+    class Meta:
+        model = ApplicationCompetencies
+        fields = ('level',)
+        list_serializer_class = FilteredAppCompListSerializer
+
+
+class CompetenceSerializer(serializers.ModelSerializer):
+    """Рекурсивно выводит список компетенций. Необходимо передать id анкеты как app_id."""
+    child = RecursiveFieldSerializer(many=True)
+    competence_value = ApplicationCompetenciesSerializer(many=True)
+
+    def to_representation(self, instance):
+        """
+        Если компетенция оценена, то досдает уровень оценки из вложенного списка.
+        Если компетенция не оценена, то не выводит ее
+        """
+        data = super().to_representation(instance)
+        if data['competence_value']:
+            data.update({'competence_value': data['competence_value'].pop()['level']})
+            return data
+        return {}
+
+    class Meta:
+        model = Competence
+        fields = ('name', 'is_estimated', 'competence_value', 'child', 'id')
+        list_serializer_class = FilteredCompetenceListSerializer
+
+    # TODO: написать сериализатор добавления списка компетенций
+
+
+class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
+    """
+    Создает оцененные компетенции.
+    """
+
+    class Meta:
+        model = ApplicationCompetencies
+        fields = ('level', 'application', 'competence')
