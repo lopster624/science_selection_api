@@ -147,7 +147,7 @@ class ChooseDirectionSerializer(serializers.ModelSerializer):
 
 
 class RecursiveFieldSerializer(serializers.Serializer):
-    """ Рекурсивно выводит дочерние компетенции"""
+    """ Рекурсивные дочерние компетенции"""
 
     def to_representation(self, value):
         serializer = self.parent.parent.__class__(value, context=self.context)
@@ -155,55 +155,41 @@ class RecursiveFieldSerializer(serializers.Serializer):
 
 
 class FilteredCompetenceListSerializer(serializers.ListSerializer):
-    """ Выводит только корневые компетенции"""
+    """ Фильтр только на корневые компетенции"""
 
     def to_representation(self, data):
         data = data.filter(parent_node=None)
         return super().to_representation(data)
 
 
-class FilteredAppCompListSerializer(serializers.ListSerializer):
-    """ Выводит только оценки текущего пользователя"""
+class CompetenceDetailSerializer(serializers.ModelSerializer):
+    """ Список компетенций """
+    child = RecursiveFieldSerializer(many=True, read_only=True)
 
-    def to_representation(self, data):
-        data = data.filter(application=self.context.get("app_id"))
-        return super().to_representation(data)
+    class Meta:
+        model = Competence
+        fields = ('name', 'is_estimated', 'id', 'child', 'parent_node', 'directions')
+        list_serializer_class = FilteredCompetenceListSerializer
+        extra_kwargs = {'parent_node': {'write_only': True}, 'directions': {'write_only': True}}
+
+
+class CompetenceSerializer(serializers.ModelSerializer):
+    """ Компетенция без уровня владения """
+
+    class Meta:
+        model = Competence
+        fields = ('name', 'is_estimated', 'id')
 
 
 class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
     """
-    Выводит только список уровней владения компетенцией.
-    С помощью FilteredAppCompListSerializer этот список сокращается только до одного уровня.
+    Выводит оцененную компетенцию
     """
+    competence = CompetenceSerializer()
 
     class Meta:
         model = ApplicationCompetencies
-        fields = ('level',)
-        list_serializer_class = FilteredAppCompListSerializer
-
-
-class CompetenceSerializer(serializers.ModelSerializer):
-    """Рекурсивно выводит список компетенций. Необходимо передать id анкеты как app_id."""
-    child = RecursiveFieldSerializer(many=True)
-    competence_value = ApplicationCompetenciesSerializer(many=True)
-
-    def to_representation(self, instance):
-        """
-        Если компетенция оценена, то досдает уровень оценки из вложенного списка.
-        Если компетенция не оценена, то не выводит ее
-        """
-        data = super().to_representation(instance)
-        if data['competence_value']:
-            data.update({'competence_value': data['competence_value'].pop()['level']})
-            return data
-        return {}
-
-    class Meta:
-        model = Competence
-        fields = ('name', 'is_estimated', 'competence_value', 'child', 'id')
-        list_serializer_class = FilteredCompetenceListSerializer
-
-    # TODO: написать сериализатор добавления списка компетенций
+        fields = ('level', 'competence')
 
 
 class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
@@ -214,3 +200,12 @@ class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ApplicationCompetencies
         fields = ('level', 'application', 'competence')
+
+    def create(self, validated_data):
+        """Сохраняет или обновляет уровень владения компетенцией"""
+        app_competence, _ = ApplicationCompetencies.objects.update_or_create(
+            application=validated_data.get('application', None),
+            competence=validated_data.get('competence', None),
+            defaults={'level': validated_data.get('level', None), }
+        )
+        return app_competence

@@ -1,14 +1,15 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
 
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
     ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, CompetenceSerializer, \
-    ApplicationCompetenciesCreateSerializer
+    ApplicationCompetenciesCreateSerializer, ApplicationCompetenciesSerializer, CompetenceDetailSerializer
 from application.utils import check_role
 from utils import constants as const
 
@@ -35,7 +36,7 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         'set_work_group': ApplicationWorkGroupSerializer,
         'list': ApplicationListSerializer,
         'create': ApplicationMasterCreateSerializer,
-        'get_competences_list': CompetenceSerializer,
+        'get_competences_list': ApplicationCompetenciesSerializer,
 
     }
     default_master_serializer_class = ApplicationMasterDetailSerializer
@@ -44,7 +45,7 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         'set_chosen_direction_list': ChooseDirectionSerializer,
         'create': ApplicationSlaveCreateSerializer,
         'list': ApplicationListSerializer,
-        'get_competences_list': CompetenceSerializer,
+        'get_competences_list': ApplicationCompetenciesSerializer,
         'set_competences_list': ApplicationCompetenciesCreateSerializer
     }
     default_slave_serializer_class = ApplicationSlaveDetailSerializer
@@ -73,6 +74,7 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='work_group')
     def get_work_group(self, request, pk=None):
+        """Todo: Проверять, что доступ имеет только мастер"""
         """Отдает выбранную рабочую группу пользователя с анкетой pk=pk"""
         queryset = Application.objects.filter(pk=pk)
         serializer = ApplicationWorkGroupSerializer(queryset)
@@ -90,8 +92,8 @@ class ApplicationViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='competences')
     def get_competences_list(self, request, pk=None):
         """Отдает список всех оцененных компетенций пользователя с анкетой pk=pk"""
-        queryset = Competence.objects.filter(competence_value__application=pk)
-        serializer = CompetenceSerializer(queryset, many=True, context={'app_id': pk})
+        queryset = ApplicationCompetencies.objects.filter(application=pk)
+        serializer = ApplicationCompetenciesSerializer(queryset, many=True)
         return Response(serializer.data)
 
     @get_competences_list.mapping.post
@@ -112,3 +114,11 @@ class EducationViewSet(viewsets.ModelViewSet):
     # TODO: Проверять, что slave может изменить application, к которому относится образование
     def get_queryset(self):
         return Education.objects.filter(application=self.kwargs['application_pk'])
+
+
+class CompetenceViewSet(viewsets.ModelViewSet):
+    serializer_class = CompetenceDetailSerializer
+    queryset = Competence.objects.all()
+    http_method_names = ['get', 'post', 'head', 'options', 'trace']
+    # TODO: ограничение на post только мастер
+
