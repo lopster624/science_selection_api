@@ -5,14 +5,14 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from account.models import Booking, BookingType
-from application.models import Application, Direction, Education, ApplicationCompetencies, Competence
+from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
     ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, CompetenceSerializer, \
     ApplicationCompetenciesCreateSerializer, ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
-    BookingSerializer, BookingCreateSerializer
-from application.utils import check_role, get_booked_type, get_in_wishlist_type
+    BookingSerializer, BookingCreateSerializer, WorkGroupSerializer
+from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id
 from utils import constants as const
 
 
@@ -180,3 +180,15 @@ class WishlistViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         application = Application.objects.get(pk=self.kwargs['application_pk'])
         serializer.save(booking_type=get_in_wishlist_type(), slave=application.member, master=self.request.user.member)
+
+
+class WorkGroupViewSet(viewsets.ModelViewSet):
+    """ Рабочие группы, только для пользователей с ролью Master """
+    serializer_class = WorkGroupSerializer
+
+    def get_queryset(self):
+        return WorkGroup.objects.filter(affiliation__in=get_master_affiliations_id(self.request.user.member))
+
+    def perform_create(self, serializer):
+        """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
+        serializer.save(user=self.request.user)

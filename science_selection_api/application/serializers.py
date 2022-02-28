@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from account.models import Member, Booking, Affiliation
 from utils import constants as const
-from .models import Application, Direction, Education, Competence, ApplicationCompetencies
+from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup
 from .utils import has_affiliation
 
 
@@ -283,3 +283,21 @@ class BookingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         exclude = ('booking_type', 'slave')
+
+
+class WorkGroupSerializer(serializers.ModelSerializer):
+    """ Рабочая группа """
+
+    class Meta:
+        model = WorkGroup
+        fields = '__all__'
+
+    def save(self, **kwargs):
+        """
+        Проверяет, что текущий user создает рабочую группу для своего направления
+        :param kwargs: словарь с user
+        :return:
+        """
+        if not has_affiliation(kwargs.get('user').member, self.validated_data.get('affiliation')):
+            raise serializers.ValidationError("Данное направление вам не принадлежит!")
+        super().save(**kwargs)

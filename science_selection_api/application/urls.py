@@ -3,12 +3,13 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_nested import routers
 
 from .views import DirectionsViewSet, ApplicationViewSet, EducationViewSet, CompetenceViewSet, BookingViewSet, \
-    WishlistViewSet
+    WishlistViewSet, WorkGroupViewSet
 
 router = DefaultRouter()
 router.register(r'directions', DirectionsViewSet)
 router.register(r'applications', ApplicationViewSet)
 router.register(r'competences', CompetenceViewSet)
+router.register(r'work-groups', WorkGroupViewSet, basename='work-groups')
 
 domains_router = routers.NestedSimpleRouter(router, r'applications', lookup='application')
 domains_router.register(r'educations', EducationViewSet, basename='educations')

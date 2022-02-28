@@ -14,7 +14,7 @@ def validate_draft_year(value: int):
 
 
 class WorkGroup(models.Model):
-    """Рабочая группа, в которую происходит распрежедение забронированных заявок"""
+    """Рабочая группа, в которую происходит распределение забронированных заявок"""
     name = models.CharField(max_length=256, verbose_name='Название рабочей группы')
     affiliation = models.ForeignKey(Affiliation, verbose_name="Принадлежность", related_name='work_group',
                                     on_delete=models.CASCADE)
