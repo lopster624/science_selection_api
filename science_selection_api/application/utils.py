@@ -6,12 +6,61 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from docxtpl import DocxTemplate
 
-from account.models import Member, Affiliation, Booking
+from account.models import Member, Affiliation, Booking, BookingType
 from utils.calculations import get_current_draft_year, convert_float
 from utils.constants import BOOKED, MEANING_COEFFICIENTS, PATH_TO_RATING_LIST, \
     PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT
 from utils.constants import NAME_ADDITIONAL_FIELD_TEMPLATE
 from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat
+from utils import constants as const
+
+
+def has_affiliation(member, affiliation):
+    """
+    Возвращает true, если у member есть принадлежность affiliation
+    :param member: экземпляр класса Member
+    :param affiliation: экземпляр класса Affiliation
+    :return: True/False
+    """
+    if member.is_slave():
+        if affiliation.direction.id in get_slave_affiliations_id(member):
+            return True
+        return False
+    elif member.is_master():
+        if affiliation.id in get_master_affiliations_id(member):
+            return True
+        return False
+    raise PermissionDenied('Доступ с текущей ролью запрещен.')
+
+
+def get_master_affiliations_id(member):
+    """
+    Получает список id принадлежностей member
+    :param member: экземпляр класса Member, должен иметь роль master!
+    :return: Список id принадлежностей
+    """
+    return Affiliation.objects.filter(member=member).values_list('id', flat=True)
+
+
+def get_slave_affiliations_id(member):
+    """
+    Получает список id принадлежностей member
+    :param member: экземпляр класса Member, должен иметь роль slave!
+    :return: Список id принадлежностей
+    """
+    return Member.objects.prefetch_related(
+        'application__directions__id').only('application__directions__id').values_list(
+        'application__directions__id', flat=True).distinct().filter(pk=member.pk)
+
+
+def get_booked_type():
+    """ Возвращает объект BookingType типа бронирования 'Отобран' """
+    return BookingType.objects.get(name=const.BOOKED)
+
+
+def get_in_wishlist_type():
+    """ Возвращает объект BookingType типа бронирования 'В избранном' """
+    return BookingType.objects.get(name=const.IN_WISHLIST)
 
 
 def check_role(user, role_name):
@@ -28,6 +77,7 @@ def check_role(user, role_name):
 def check_permission_decorator(role_name=None):
     """ Кидает исключение PermissionDenied, если роль user!=role_name
     или текущий пользователь не является пользователем с переданным pk"""
+
     def decorator(func):
         def wrapper(self, request, pk, *args, **kwargs):
             if request.user.member.role.role_name == role_name:
@@ -189,26 +239,3 @@ def add_additional_fields(request, user_app):
             AdditionFieldApp.objects.update_or_create(addition_field=field, application=user_app,
                                                       defaults={'value': request.POST.get(
                                                           f"{NAME_ADDITIONAL_FIELD_TEMPLATE}{field.id}")})
-
-
-def get_cleared_query_string_of_page(query_string):
-    """Возвращает строку query-параметров без параметра page"""
-    if not query_string:
-        return ''
-    return '&'.join(param for param in query_string.split('&') if 'page=' not in param) + '&'
-
-
-def get_sorted_queryset(apps, ordering):
-    """Возвращает отсортированый queryset по our_direction и ordering(если есть)"""
-    if ordering:
-        return apps.order_by('-our_direction', ordering)
-    return apps.order_by('-our_direction')
-
-
-def get_form_data(get_dict):
-    """Если в словаре get_dict содержится что-то кроме page, то возвращает его. В противном случае возвращает None"""
-    orig_dict = dict(get_dict)
-    orig_dict.pop('page', None)
-    if not orig_dict:
-        return None
-    return get_dict

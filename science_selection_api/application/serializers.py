@@ -2,9 +2,10 @@ from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 
-from account.models import Member
+from account.models import Member, Booking, Affiliation
 from utils import constants as const
 from .models import Application, Direction, Education, Competence, ApplicationCompetencies
+from .utils import has_affiliation
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -35,6 +36,14 @@ class MemberListSerialiser(serializers.ModelSerializer):
     class Meta:
         model = Member
         fields = ('user', 'father_name',)
+
+
+class MemberDetailSerialiser(serializers.ModelSerializer):
+    user = UserListSerializer()
+
+    class Meta:
+        model = Member
+        fields = ('user', 'father_name', 'phone')
 
 
 class DirectionDetailSerializer(serializers.ModelSerializer):
@@ -84,6 +93,7 @@ class ApplicationSlaveCreateSerializer(serializers.ModelSerializer):
 
 
 class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
+    """ Подробная анкета только для кандидата """
     draft_season = serializers.CharField(source='get_draft_season_display', read_only=True)
     is_final = serializers.BooleanField(read_only=True)
     member = MemberListSerialiser(read_only=True)
@@ -98,6 +108,7 @@ class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
 
 
 class ApplicationMasterDetailSerializer(serializers.ModelSerializer):
+    """ Подробная анкета только для мастера"""
     member = MemberListSerialiser(read_only=True)
     draft_season_display = serializers.CharField(source='get_draft_season_display', read_only=True)
     education = EducationDetailSerializer(many=True, read_only=True)
@@ -111,14 +122,22 @@ class ApplicationMasterDetailSerializer(serializers.ModelSerializer):
 
 
 class ApplicationWorkGroupSerializer(serializers.ModelSerializer):
+    """ Рабочая группа заявки """
+
     class Meta:
         model = Application
         fields = ('work_group',)
 
 
 class ChooseDirectionListSerializer(serializers.ListSerializer):
+    """ Установка списка направлений для заявки """
+
     def save(self, pk=None):
-        """Сохраняет список полученных направлений в заявку с pk. Обновляет итоговый балл заявки."""
+        """
+        Сохраняет список полученных направлений в заявку с pk. Обновляет итоговый балл заявки.
+        :param pk: идентификатор заявки
+        :return: None
+        """
         user_app = get_object_or_404(Application, pk=pk)
         directions_ids = [item.pop('id') for item in self.validated_data]
         if directions_ids:
@@ -138,6 +157,7 @@ class ChooseDirectionListSerializer(serializers.ListSerializer):
 
 
 class ChooseDirectionSerializer(serializers.ModelSerializer):
+    """ Направления заявки """
     id = serializers.IntegerField()
 
     class Meta:
@@ -182,9 +202,7 @@ class CompetenceSerializer(serializers.ModelSerializer):
 
 
 class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
-    """
-    Выводит оцененную компетенцию
-    """
+    """ Выводит оцененную компетенцию """
     competence = CompetenceSerializer()
 
     class Meta:
@@ -193,9 +211,7 @@ class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
 
 
 class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
-    """
-    Создает оцененные компетенции.
-    """
+    """ Создает оцененные компетенции """
 
     class Meta:
         model = ApplicationCompetencies
@@ -209,3 +225,61 @@ class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
             defaults={'level': validated_data.get('level', None), }
         )
         return app_competence
+
+
+class AffiliationSerializer(serializers.ModelSerializer):
+    """ Принадлежность """
+    direction = DirectionListSerializer()
+
+    class Meta:
+        model = Affiliation
+        fields = '__all__'
+
+
+class BookingCreateSerializer(serializers.ModelSerializer):
+    """ Создание бронирования и добавления в вишлист """
+
+    class Meta:
+        model = Booking
+        exclude = ('booking_type', 'slave', 'master')
+
+    def custom_validate(self, **kwargs):
+        """
+        Проверяет, что мастер успешно может отобрать данного кандидата
+        При неверности данных вызывает исключение
+        :param kwargs: словарь с экземплярами slave, master, booking type
+        :return: True, валидны ли данные
+        """
+        booking_type = kwargs.get('booking_type')
+        slave = kwargs.get('slave')
+        affiliation = self.validated_data.get('affiliation')
+        master = kwargs.get('master')
+        # проверки и на book и на wishlist
+        if not has_affiliation(master, affiliation):
+            raise serializers.ValidationError("Данное направление вам не принадлежит!")
+
+        if booking_type.name == const.BOOKED:
+            if not has_affiliation(slave, affiliation):
+                raise serializers.ValidationError("Кандидат не подал заявку на данное направление!")
+            if Booking.objects.filter(slave=slave, booking_type=booking_type).exists():
+                raise serializers.ValidationError("Данный кандидат уже отобран!")
+            return True
+        elif booking_type.name == const.IN_WISHLIST:
+            if Booking.objects.filter(slave=slave, master=master, affiliation=affiliation,
+                                      booking_type=booking_type).exists():
+                raise serializers.ValidationError("Данная запись уже существует!")
+        return True
+
+    def save(self, **kwargs):
+        self.custom_validate(**kwargs)
+        super().save(**kwargs)
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    """ Бронирования и добавления в вишлист """
+    master = MemberDetailSerialiser()
+    affiliation = AffiliationSerializer()
+
+    class Meta:
+        model = Booking
+        exclude = ('booking_type', 'slave')

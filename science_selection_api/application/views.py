@@ -4,18 +4,20 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from account.models import Booking, BookingType
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
     ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, CompetenceSerializer, \
-    ApplicationCompetenciesCreateSerializer, ApplicationCompetenciesSerializer, CompetenceDetailSerializer
-from application.utils import check_role
+    ApplicationCompetenciesCreateSerializer, ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
+    BookingSerializer, BookingCreateSerializer
+from application.utils import check_role, get_booked_type, get_in_wishlist_type
 from utils import constants as const
 
 
 class DirectionsViewSet(viewsets.ReadOnlyModelViewSet):
-    """Viewset для вывода всех направлений или конкретного"""
+    """Вывод всех направлений или конкретного"""
     queryset = Direction.objects.all()
     serializers = {
         'list': DirectionListSerializer
@@ -27,6 +29,11 @@ class DirectionsViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ApplicationViewSet(viewsets.ModelViewSet):
+    """
+    Главный список заявок
+    Также дополнительные вложенные эндпоинты для получения и сохранения компетенций, направлений, рабочих групп.
+    """
+    # todo: добавить доп. поля в анкету
     queryset = Application.objects.all()
 
     master_serializers = {
@@ -42,7 +49,6 @@ class ApplicationViewSet(viewsets.ModelViewSet):
     default_master_serializer_class = ApplicationMasterDetailSerializer
     slave_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
-        'set_chosen_direction_list': ChooseDirectionSerializer,
         'create': ApplicationSlaveCreateSerializer,
         'list': ApplicationListSerializer,
         'get_competences_list': ApplicationCompetenciesSerializer,
@@ -109,6 +115,7 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
 
 class EducationViewSet(viewsets.ModelViewSet):
+    """ Список образований или добавление новых."""
     serializer_class = EducationDetailSerializer
 
     # TODO: Проверять, что slave может изменить application, к которому относится образование
@@ -117,8 +124,59 @@ class EducationViewSet(viewsets.ModelViewSet):
 
 
 class CompetenceViewSet(viewsets.ModelViewSet):
+    """ Список компетенций в иерархии или создание новой."""
     serializer_class = CompetenceDetailSerializer
     queryset = Competence.objects.all()
     http_method_names = ['get', 'post', 'head', 'options', 'trace']
     # TODO: ограничение на post только мастер
 
+
+class BookingViewSet(viewsets.ModelViewSet):
+    """ Список бронирований данной анкеты, создание или удаление бронирования."""
+    http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
+
+    serializers = {
+        'delete': BookingCreateSerializer,
+        'create': BookingCreateSerializer,
+    }
+    default_master_serializer_class = BookingSerializer
+
+    def get_serializer_class(self):
+        return self.serializers.get(self.action, self.default_master_serializer_class)
+
+    def get_queryset(self):
+        application = Application.objects.get(pk=self.kwargs['application_pk'])
+        return Booking.objects.filter(slave=application.member, booking_type=get_booked_type())
+
+    def perform_create(self, serializer):
+        application = Application.objects.get(pk=self.kwargs['application_pk'])
+        serializer.save(booking_type=get_booked_type(), slave=application.member, master=self.request.user.member)
+
+    def perform_destroy(self, instance):
+        # Удаляет рабочую группу
+        if instance.slave.application.work_group and instance.booking_type == get_booked_type():
+            instance.slave.application.work_group = None
+            instance.slave.application.save(update_fields=["work_group"])
+        instance.delete()
+
+
+class WishlistViewSet(viewsets.ModelViewSet):
+    """ Список добавлений в список избранных данной анкеты, создание или удаление."""
+    http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
+
+    serializers = {
+        'delete': BookingCreateSerializer,
+        'create': BookingCreateSerializer,
+    }
+    default_master_serializer_class = BookingSerializer
+
+    def get_serializer_class(self):
+        return self.serializers.get(self.action, self.default_master_serializer_class)
+
+    def get_queryset(self):
+        application = Application.objects.get(pk=self.kwargs['application_pk'])
+        return Booking.objects.filter(slave=application.member, booking_type=get_in_wishlist_type())
+
+    def perform_create(self, serializer):
+        application = Application.objects.get(pk=self.kwargs['application_pk'])
+        serializer.save(booking_type=get_in_wishlist_type(), slave=application.member, master=self.request.user.member)
