@@ -5,14 +5,15 @@ from io import BytesIO
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from docxtpl import DocxTemplate
+from rest_framework.exceptions import ValidationError
 
 from account.models import Member, Affiliation, Booking, BookingType
+from utils import constants as const
 from utils.calculations import get_current_draft_year, convert_float
 from utils.constants import BOOKED, MEANING_COEFFICIENTS, PATH_TO_RATING_LIST, \
     PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT
 from utils.constants import NAME_ADDITIONAL_FIELD_TEMPLATE
 from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat
-from utils import constants as const
 
 
 def has_affiliation(member, affiliation):
@@ -151,7 +152,10 @@ class WordTemplate:
                 filter(member__in=booked_slaves, draft_year=current_year, draft_season=current_season[0]).all()
 
             for i, user_app in enumerate(booked_user_apps):
-                user_last_education = user_app.education.all()[0]
+                try:
+                    user_last_education = user_app.education.all()[0]
+                except IndexError:
+                    raise ValidationError(f'Файл не может быть сформирован, т.к. {user_app} не указал образование!')
                 general_info, additional_info = {'number': i + 1,
                                                  'first_name': user_app.member.user.first_name,
                                                  'last_name': user_app.member.user.last_name,
@@ -239,3 +243,29 @@ def add_additional_fields(request, user_app):
             AdditionFieldApp.objects.update_or_create(addition_field=field, application=user_app,
                                                       defaults={'value': request.POST.get(
                                                           f"{NAME_ADDITIONAL_FIELD_TEMPLATE}{field.id}")})
+
+
+def get_application_as_word(request, pk):
+    """Генерирует word-файл анкеты сохраняет в буффер и возвращает"""
+    word_template = WordTemplate(request, const.PATH_TO_INTERVIEW_LIST)
+    context = word_template.create_context_to_interview_list(pk)
+    return word_template.create_word_in_buffer(context)
+
+
+def get_service_file(request, path_to_file, all_directions):
+    """
+    Генерирует сервисный файл, сохраняет в буффер и возвращает
+    :param request: экземляр Request
+    :param path_to_file: путь до шаблона
+    :param all_directions: bool(нужно ли использовать все направления или только направления user'a)
+    :return: file
+    """
+    word_template = WordTemplate(request, path_to_file)
+    context = word_template.create_context_to_word_files(path_to_file, all_directions)
+    return word_template.create_word_in_buffer(context)
+
+
+def update_user_application_scores(pk):
+    """Обновляет баллы анкеты с pk"""
+    user_app = get_object_or_404(Application, pk=pk)
+    user_app.update_scores(update_fields=['fullness', 'final_score'])

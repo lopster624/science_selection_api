@@ -1,18 +1,22 @@
-from rest_framework import viewsets, status, mixins
+from django.http import FileResponse
+from django.utils.encoding import escape_uri_path
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ParseError
+from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.views import APIView
 
-from account.models import Booking, BookingType
+from account.models import Booking
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
-    ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, CompetenceSerializer, \
-    ApplicationCompetenciesCreateSerializer, ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
+    ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
+    ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer
-from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id
+from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
+    get_application_as_word, get_service_file, update_user_application_scores
 from utils import constants as const
 
 
@@ -63,6 +67,18 @@ class ApplicationViewSet(viewsets.ModelViewSet):
             return self.master_serializers.get(self.action, self.default_master_serializer_class)
         raise PermissionDenied('Доступ для пользователя без роли запрещен')
 
+    def perform_create(self, serializer):
+        serializer.save()
+        update_user_application_scores(pk=self.kwargs['pk'])
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        update_user_application_scores(pk=self.kwargs['pk'])
+
+    def perform_update(self, serializer):
+        serializer.save()
+        update_user_application_scores(pk=self.kwargs['pk'])
+
     @action(detail=True, methods=['get'], url_path='directions')
     def get_chosen_direction_list(self, request, pk=None):
         """Отдает список всех выбранных направлений пользователя с анкетой pk=pk"""
@@ -77,6 +93,16 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         if serializer.is_valid(raise_exception=True):
             user_app = serializer.save(pk=pk)
             return Response(user_app, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='download')
+    def download_application_as_word(self, request, pk=None):
+        """Генерирует word файл анкеты и позволяет скачать его """
+        user_app = get_object_or_404(Application.objects.only('member'), pk=pk)
+        user_docx = get_application_as_word(request, pk)
+        response = FileResponse(user_docx, content_type='application/docx')
+        response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path(
+            f"Анкета_{user_app.member.user.last_name}.docx") + '"'
+        return response
 
     @action(detail=True, methods=['get'], url_path='work_group')
     def get_work_group(self, request, pk=None):
@@ -121,6 +147,18 @@ class EducationViewSet(viewsets.ModelViewSet):
     # TODO: Проверять, что slave может изменить application, к которому относится образование
     def get_queryset(self):
         return Education.objects.filter(application=self.kwargs['application_pk'])
+
+    def perform_create(self, serializer):
+        serializer.save()
+        update_user_application_scores(pk=self.kwargs['application_pk'])
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        update_user_application_scores(pk=self.kwargs['application_pk'])
+
+    def perform_update(self, serializer):
+        serializer.save()
+        update_user_application_scores(pk=self.kwargs['application_pk'])
 
 
 class CompetenceViewSet(viewsets.ModelViewSet):
@@ -192,3 +230,25 @@ class WorkGroupViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
         serializer.save(user=self.request.user)
+
+class DownloadServiceDocuments(APIView):
+    """todo: сделать доступ только у мастера"""
+
+    def get(self, request):
+        """
+        Генерирует служебные файлы формата docx на основе отобранных анкет
+        query params:
+            doc: string - обозначает какой из файлов необходимо сгенерировать
+                candidates - для итогового списка кандидатов
+                rating - для рейтингового списка призыва
+                evaluation-statement - для итогового списка кандидатов
+            directions: True/False - делать выборку по всем направлениям/по направлениям закрепленными за пользователем
+        """
+        service_document = request.GET.get('doc', '')
+        path_to_file, filename = const.TYPE_SERVICE_DOCUMENT.get(service_document, (None, None))
+        if path_to_file:
+            user_docx = get_service_file(request, path_to_file, bool(request.GET.get('directions', None)))
+            response = FileResponse(user_docx, content_type='application/docx')
+            response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path(filename) + '"'
+            return response
+        raise ParseError('Плохой query параметр')

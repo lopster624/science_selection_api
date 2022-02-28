@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_nested import routers
 
 from .views import DirectionsViewSet, ApplicationViewSet, EducationViewSet, CompetenceViewSet, BookingViewSet, \
-    WishlistViewSet, WorkGroupViewSet
+    WishlistViewSet, WorkGroupViewSet, DownloadServiceDocuments
 
 router = DefaultRouter()
 router.register(r'directions', DirectionsViewSet)
@@ -20,4 +20,5 @@ domains_router.register(r'wishlist', WishlistViewSet, basename='wishlist')
 urlpatterns = [
     path(r'', include(router.urls)),
     path(r'', include(domains_router.urls)),
+    path(r'download-files/', DownloadServiceDocuments.as_view())
 ]
