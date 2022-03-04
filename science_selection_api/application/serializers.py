@@ -72,14 +72,6 @@ class ApplicationListSerializer(serializers.ModelSerializer):
         )
 
 
-class ApplicationMasterCreateSerializer(serializers.ModelSerializer):
-    """ Создание анкеты мастером """
-
-    class Meta:
-        model = Application
-        exclude = ('directions', 'competencies', 'fullness', 'final_score', 'is_final', 'work_group')
-
-
 class ApplicationSlaveCreateSerializer(serializers.ModelSerializer):
     """ Создание анкеты кандидатом"""
 
@@ -88,7 +80,7 @@ class ApplicationSlaveCreateSerializer(serializers.ModelSerializer):
         exclude = (
             'directions', 'compliance_prior_direction', 'compliance_additional_direction',
             'postgraduate_additional_direction', 'postgraduate_prior_direction', 'competencies', 'fullness',
-            'final_score', 'is_final', 'work_group',
+            'final_score', 'is_final', 'work_group', 'member',
         )
 
 

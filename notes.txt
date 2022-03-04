@@ -1,0 +1,32 @@
+https://pocoz.gitbooks.io/django-v-primerah/content/glava-7-sozdanie-internet-magazina/sozdanie-korzini/ispolzovanie-sessii-django.html
+https://django.fun/docs/django/ru/3.2/topics/http/sessions/
+https://ilyachch.gitbook.io/django-rest-framework-russian-documentation/overview/navigaciya-po-api/generic-views
+
+Библиотеки для тестирования: factoryboy, faker
+урл-паттерны
+[<URLPattern '^directions/$' [name='direction-list']>,
+ <URLPattern '^directions\.(?P<format>[a-z0-9]+)/?$' [name='direction-list']>,
+ <URLPattern '^directions/(?P<pk>[^/.]+)/$' [name='direction-detail']>,
+ <URLPattern '^directions/(?P<pk>[^/.]+)\.(?P<format>[a-z0-9]+)/?$' [name='direction-detail']>,
+ <URLPattern '^applications/$' [name='application-list']>,
+ <URLPattern '^applications\.(?P<format>[a-z0-9]+)/?$' [name='application-list']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/$' [name='application-detail']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)\.(?P<format>[a-z0-9]+)/?$' [name='application-detail']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/download/$' [name='application-download-application-as-word']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/download\.(?P<format>[a-z0-9]+)/?$' [name='application-download-application-as-word']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/directions/$' [name='application-get-chosen-direction-list']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/directions\.(?P<format>[a-z0-9]+)/?$' [name='application-get-chosen-direction-list']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/competences/$' [name='application-get-competences-list']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/competences\.(?P<format>[a-z0-9]+)/?$' [name='application-get-competences-list']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/work_group/$' [name='application-get-work-group']>,
+ <URLPattern '^applications/(?P<pk>[^/.]+)/work_group\.(?P<format>[a-z0-9]+)/?$' [name='application-get-work-group']>,
+ <URLPattern '^competences/$' [name='competence-list']>,
+ <URLPattern '^competences\.(?P<format>[a-z0-9]+)/?$' [name='competence-list']>,
+ <URLPattern '^competences/(?P<pk>[^/.]+)/$' [name='competence-detail']>,
+ <URLPattern '^competences/(?P<pk>[^/.]+)\.(?P<format>[a-z0-9]+)/?$' [name='competence-detail']>,
+ <URLPattern '^work-groups/$' [name='work-groups-list']>,
+ <URLPattern '^work-groups\.(?P<format>[a-z0-9]+)/?$' [name='work-groups-list']>,
+ <URLPattern '^work-groups/(?P<pk>[^/.]+)/$' [name='work-groups-detail']>,
+ <URLPattern '^work-groups/(?P<pk>[^/.]+)\.(?P<format>[a-z0-9]+)/?$' [name='work-groups-detail']>,
+ <URLPattern '^$' [name='api-root']>,
+ <URLPattern '^\.(?P<format>[a-z0-9]+)/?$' [name='api-root']>]

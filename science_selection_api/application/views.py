@@ -2,22 +2,33 @@ from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ParseError
+from rest_framework.exceptions import ParseError
 from rest_framework.generics import get_object_or_404
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from account.models import Booking
+from application.mixins import PermissionPolicyMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
+from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
+    ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
-    ApplicationMasterCreateSerializer, ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
+    ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores
 from utils import constants as const
+
+"""
+todo: не реализован функционал: загрузка/удаление файлов пользователями, тестирование, 
+добавление компетенций в направление, удаление компетенций из направлений, список выбранных/не выбранных компетенций на 
+направление, добавление, удаление и изменение заметок, блокирование анкеты, рабочий список, установка ограничений 
+по ролям, is_final и направлениям, пагинации, фильтры, поиски,
+"""
 
 
 class DirectionsViewSet(viewsets.ReadOnlyModelViewSet):
@@ -32,21 +43,33 @@ class DirectionsViewSet(viewsets.ReadOnlyModelViewSet):
         return self.serializers.get(self.action, self.default_serializer_class)
 
 
-class ApplicationViewSet(viewsets.ModelViewSet):
+class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     """
     Главный список заявок
     Также дополнительные вложенные эндпоинты для получения и сохранения компетенций, направлений, рабочих групп.
-    """
-    # todo: добавить доп. поля в анкету
-    queryset = Application.objects.all()
+    Доступ:
+        лист заявок - master
+        заявка - master или хозяин заявки
+        создание заявки - slave
+        редактирование заявки - хозяин заявки и master, если заявка не is_final, мастер,
+                                если заявка отобрана на его направление
 
+        удаление заявки - админ
+        список направлений - master или хозяин заявки
+        установка направления - хозяин заявки, если заявка не is_final
+        скачать анкету word - master
+        просмотр и установка рабочей группы - мастер, если заявка отобрана на его направление
+        просмотр списка компетенций - master или хозяин заявки
+        установка компетенций - хозяин заявки, если заявка не is_final
+    """
+    # todo: добавить доп. поля в анкету, фильтрацию, пагинацию
+    queryset = Application.objects.all()
     master_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
         'set_chosen_direction_list': ChooseDirectionSerializer,
         'get_work_group': ApplicationWorkGroupSerializer,
         'set_work_group': ApplicationWorkGroupSerializer,
         'list': ApplicationListSerializer,
-        'create': ApplicationMasterCreateSerializer,
         'get_competences_list': ApplicationCompetenciesSerializer,
 
     }
@@ -59,17 +82,32 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         'set_competences_list': ApplicationCompetenciesCreateSerializer
     }
     default_slave_serializer_class = ApplicationSlaveDetailSerializer
+    permission_classes_per_method = {
+        'list': [IsMasterPermission, ],  # проверено
+        'retrieve': [IsMasterPermission | IsApplicationOwnerPermission],  # проверено
+        'create': [IsSlavePermission, ],
+        'update': [(IsApplicationOwnerPermission & IsMasterPermission & ApplicationIsNotFinalPermission) |
+                   IsBookedOnMasterDirectionPermission],
+        'destroy': [IsAdminUser, ],
+        'get_chosen_direction_list': [IsMasterPermission | IsApplicationOwnerPermission],
+        'set_chosen_direction_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],
+        'download_application_as_word': [IsMasterPermission, ],
+        'get_work_group': [IsBookedOnMasterDirectionPermission, ],
+        'set_work_group': [IsBookedOnMasterDirectionPermission, ],
+        'get_competences_list': [IsMasterPermission | IsApplicationOwnerPermission],
+        'set_competences_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],
+    }
 
     def get_serializer_class(self):
         if check_role(self.request.user, const.SLAVE_ROLE_NAME):
             return self.slave_serializers.get(self.action, self.default_slave_serializer_class)
         elif self.request.user.is_superuser or check_role(self.request.user, const.MASTER_ROLE_NAME):
             return self.master_serializers.get(self.action, self.default_master_serializer_class)
-        raise PermissionDenied('Доступ для пользователя без роли запрещен')
+        return self.default_slave_serializer_class  # раньше вызывал ошибку
 
     def perform_create(self, serializer):
-        serializer.save()
-        update_user_application_scores(pk=self.kwargs['pk'])
+        application = serializer.save(member=self.request.user.member)
+        update_user_application_scores(pk=application.pk)
 
     def perform_destroy(self, instance):
         instance.delete()
@@ -106,7 +144,6 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='work_group')
     def get_work_group(self, request, pk=None):
-        """Todo: Проверять, что доступ имеет только мастер"""
         """Отдает выбранную рабочую группу пользователя с анкетой pk=pk"""
         queryset = Application.objects.filter(pk=pk)
         serializer = ApplicationWorkGroupSerializer(queryset)
@@ -141,7 +178,15 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
 
 class EducationViewSet(viewsets.ModelViewSet):
-    """ Список образований или добавление новых."""
+    """
+    Список образований или добавление новых.
+    Доступ:
+        лист - master, хозяин заявки
+        образование - master или хозяин заявки
+        создание - master, хозяин заявки, если заявка не is_final, мастер, если заявка отобрана на его направление
+        редактирование - хозяин заявки и master, если заявка не is_final, мастер, если заявка отобрана на его направление
+        удаление - хозяин заявки и master, если заявка не is_final, мастер, если заявка отобрана на его направление
+    """
     serializer_class = EducationDetailSerializer
 
     # TODO: Проверять, что slave может изменить application, к которому относится образование
@@ -162,15 +207,27 @@ class EducationViewSet(viewsets.ModelViewSet):
 
 
 class CompetenceViewSet(viewsets.ModelViewSet):
-    """ Список компетенций в иерархии или создание новой."""
+    """
+    Список компетенций в иерархии или создание новой.
+    Доступ:
+        список - any
+        компетенция - any
+        создание - мастер
+    """
     serializer_class = CompetenceDetailSerializer
     queryset = Competence.objects.all()
     http_method_names = ['get', 'post', 'head', 'options', 'trace']
-    # TODO: ограничение на post только мастер
 
 
 class BookingViewSet(viewsets.ModelViewSet):
-    """ Список бронирований данной анкеты, создание или удаление бронирования."""
+    """
+    Список бронирований данной анкеты, создание или удаление бронирования.
+    Доступ:
+        список - any
+        бронирование - any
+        создание - master
+        удаление - master, если заявка отобрана на его направление
+    """
     http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
 
     serializers = {
@@ -199,7 +256,14 @@ class BookingViewSet(viewsets.ModelViewSet):
 
 
 class WishlistViewSet(viewsets.ModelViewSet):
-    """ Список добавлений в список избранных данной анкеты, создание или удаление."""
+    """
+    Список добавлений в список избранных данной анкеты, создание или удаление.
+    Доступ:
+        список - master
+        в вишлисте - master
+        создание - master
+        удаление - master, если эта запись в его принадлежности
+    """
     http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
 
     serializers = {
@@ -221,7 +285,10 @@ class WishlistViewSet(viewsets.ModelViewSet):
 
 
 class WorkGroupViewSet(viewsets.ModelViewSet):
-    """ Рабочие группы, только для пользователей с ролью Master """
+    """
+    Рабочие группы
+    Доступ: master
+    """
     serializer_class = WorkGroupSerializer
 
     def get_queryset(self):
@@ -231,8 +298,12 @@ class WorkGroupViewSet(viewsets.ModelViewSet):
         """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
         serializer.save(user=self.request.user)
 
+
 class DownloadServiceDocuments(APIView):
-    """todo: сделать доступ только у мастера"""
+    """
+    Генерация и загрузка документов по отбору
+    Доступ: master
+    """
 
     def get(self, request):
         """

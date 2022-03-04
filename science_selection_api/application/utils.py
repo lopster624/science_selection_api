@@ -3,9 +3,9 @@ import re
 from io import BytesIO
 
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import get_object_or_404, redirect
 from docxtpl import DocxTemplate
 from rest_framework.exceptions import ValidationError
+from rest_framework.generics import get_object_or_404
 
 from account.models import Member, Affiliation, Booking, BookingType
 from utils import constants as const
@@ -91,19 +91,6 @@ def check_permission_decorator(role_name=None):
         return wrapper
 
     return decorator
-
-
-def check_final_decorator(func):
-    """Декоратор, который проверяет, что анкету пользователя можно редактировать.
-     В противном случае редиректит на предыдущую страницу"""
-
-    def wrapper(self, request, pk, *args, **kwargs):
-        user_app = get_object_or_404(Application.objects.only('is_final'), pk=pk)
-        if user_app.is_final:
-            return redirect(request.path_info)
-        return func(self, request, pk, *args, **kwargs)
-
-    return wrapper
 
 
 class WordTemplate:
@@ -219,11 +206,11 @@ class WordTemplate:
 def check_booking_our_or_exception(pk, user):
     """Проверяет, что пользователь с айди анкеты pk был забронирован на направления пользователя user и
     рейзит ошибку, если не забронирован."""
-    if not is_booked_our(pk, user):
+    if not is_booked_by_user(pk, user):
         raise PermissionDenied('Данный пользователь не отобран на ваше направление.')
 
 
-def is_booked_our(pk, user):
+def is_booked_by_user(pk, user):
     """
     Возвращает True, если пользователь с айди анкеты = pk забронирован на направления user,
     в обратном случае - False
