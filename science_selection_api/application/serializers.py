@@ -1,11 +1,10 @@
 from django.contrib.auth.models import User
-from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 
 from account.models import Member, Booking, Affiliation
 from utils import constants as const
 from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup
-from .utils import has_affiliation
+from .utils import has_affiliation, get_booking
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -109,8 +108,23 @@ class ApplicationMasterDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Application
         exclude = ('competencies', 'create_date', 'update_date')
-        extra_kwargs = {'final_score': {'read_only': True}, 'fullness': {'read_only': True}}
-        # Todo: проверять, что is_final и work_group мастер может прожать только после брони.
+        extra_kwargs = {'final_score': {'read_only': True}, 'is_final': {'read_only': True},
+                        'fullness': {'read_only': True}}
+
+
+def validate_work_group(slave_member, work_group):
+    """
+    проверяет, что сохраняемая рабочая группа принадлежит направлению, на которое забронирована заявка
+    :param slave_member:
+    :param work_group:
+    :return: True
+    """
+    booking = get_booking(slave_member)
+    if not booking:
+        raise serializers.ValidationError('Данный кандидат не был отобран!')
+    if work_group and work_group.affiliation != booking.affiliation:
+        raise serializers.ValidationError('Данная рабочая группа не соответствует принадлежности заявки!')
+    return True
 
 
 class ApplicationWorkGroupSerializer(serializers.ModelSerializer):
@@ -120,17 +134,29 @@ class ApplicationWorkGroupSerializer(serializers.ModelSerializer):
         model = Application
         fields = ('work_group',)
 
+    def update(self, instance, validated_data):
+        # Обновляет заявку после прохожедния валидации
+        validate_work_group(instance.member, validated_data.get('work_group', None))
+        return super().update(instance, validated_data)
+
+
+class ApplicationIsFinalSerializer(serializers.ModelSerializer):
+    """ Рабочая группа заявки """
+
+    class Meta:
+        model = Application
+        fields = ('is_final',)
+
 
 class ChooseDirectionListSerializer(serializers.ListSerializer):
     """ Установка списка направлений для заявки """
 
-    def save(self, pk=None):
+    def save(self, user_app=None):
         """
         Сохраняет список полученных направлений в заявку с pk. Обновляет итоговый балл заявки.
-        :param pk: идентификатор заявки
+        :param user_app: экземпляр заяви
         :return: None
         """
-        user_app = get_object_or_404(Application, pk=pk)
         directions_ids = [item.pop('id') for item in self.validated_data]
         if directions_ids:
             directions = Direction.objects.filter(pk__in=directions_ids)
@@ -235,7 +261,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         model = Booking
         exclude = ('booking_type', 'slave', 'master')
 
-    def custom_validate(self, **kwargs):
+    def validate_booking(self, **kwargs):
         """
         Проверяет, что мастер успешно может отобрать данного кандидата
         При неверности данных вызывает исключение
@@ -263,7 +289,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return True
 
     def save(self, **kwargs):
-        self.custom_validate(**kwargs)
+        self.validate_booking(**kwargs)
         super().save(**kwargs)
 
 

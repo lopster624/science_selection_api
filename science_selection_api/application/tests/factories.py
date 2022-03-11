@@ -6,8 +6,9 @@ from django.contrib.auth.models import User
 from factory import post_generation
 from factory.django import DjangoModelFactory
 
-from account.models import Member, Role, Affiliation
+from account.models import Member, Role, Affiliation, BookingType, Booking
 from application.models import Application, Direction, WorkGroup
+from utils.constants import BOOKED
 
 
 class RoleFactory(DjangoModelFactory):
@@ -71,6 +72,23 @@ class WorkGroupFactory(DjangoModelFactory):
     description = factory.Faker('sentence')
 
 
+class BookingTypeFactory(DjangoModelFactory):
+    class Meta:
+        model = BookingType
+
+    name = BOOKED
+
+
+class BookingFactory(DjangoModelFactory):
+    class Meta:
+        model = Booking
+
+    booking_type = factory.SubFactory(BookingTypeFactory)
+    master = factory.SubFactory(MemberFactory)
+    slave = factory.SubFactory(MemberFactory)
+    affiliation = factory.SubFactory(AffiliationFactory)
+
+
 class ApplicationFactory(DjangoModelFactory):
     class Meta:
         model = Application
@@ -82,7 +100,7 @@ class ApplicationFactory(DjangoModelFactory):
     nationality = factory.Faker('country')
     military_commissariat = factory.Faker('city')
     group_of_health = factory.Faker('word')
-    draft_year = factory.Faker('pyint', min_value=datetime.now().year+1, max_value=datetime.now().year+10)
+    draft_year = factory.Faker('pyint', min_value=datetime.now().year + 1, max_value=datetime.now().year + 10)
     draft_season = factory.Faker('pyint', min_value=1, max_value=2)
     scientific_achievements = factory.Faker('sentence')
     scholarships = factory.Faker('sentence')

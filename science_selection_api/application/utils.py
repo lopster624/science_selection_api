@@ -93,6 +93,38 @@ def check_permission_decorator(role_name=None):
     return decorator
 
 
+def check_booking_our_or_exception(pk, user):
+    """Проверяет, что пользователь с айди анкеты pk был забронирован на направления пользователя user и
+    рейзит ошибку, если не забронирован."""
+    if not is_booked_by_user(pk, user):
+        raise PermissionDenied('Данный пользователь не отобран на ваше направление.')
+
+
+def is_booked_by_user(pk, user):
+    """
+    Возвращает True, если пользователь с айди анкеты = pk забронирован на направления user,
+    в обратном случае - False
+    """
+    app = get_object_or_404(Application, pk=pk)
+    try:
+        master_affiliations = Affiliation.objects.filter(member=user.member)
+    except AttributeError:
+        return False
+    return Booking.objects.filter(slave=app.member, booking_type__name=BOOKED,
+                                  affiliation__in=master_affiliations).exists()
+
+
+def add_additional_fields(request, user_app):
+    additional_fields = [int(re.search('\d+', field).group(0)) for field in request.POST
+                         if NAME_ADDITIONAL_FIELD_TEMPLATE in field]
+    if additional_fields:
+        addition_fields = AdditionField.objects.filter(pk__in=additional_fields)
+        for field in addition_fields:
+            AdditionFieldApp.objects.update_or_create(addition_field=field, application=user_app,
+                                                      defaults={'value': request.POST.get(
+                                                          f"{NAME_ADDITIONAL_FIELD_TEMPLATE}{field.id}")})
+
+
 class WordTemplate:
     """ Класс для создания шаблона ворд документа по файлу, который через путь - path_to_template """
 
@@ -203,35 +235,6 @@ class WordTemplate:
         }
 
 
-def check_booking_our_or_exception(pk, user):
-    """Проверяет, что пользователь с айди анкеты pk был забронирован на направления пользователя user и
-    рейзит ошибку, если не забронирован."""
-    if not is_booked_by_user(pk, user):
-        raise PermissionDenied('Данный пользователь не отобран на ваше направление.')
-
-
-def is_booked_by_user(pk, user):
-    """
-    Возвращает True, если пользователь с айди анкеты = pk забронирован на направления user,
-    в обратном случае - False
-    """
-    app = get_object_or_404(Application, pk=pk)
-    master_affiliations = Affiliation.objects.filter(member=user.member)
-    return Booking.objects.filter(slave=app.member, booking_type__name=BOOKED,
-                                  affiliation__in=master_affiliations).exists()
-
-
-def add_additional_fields(request, user_app):
-    additional_fields = [int(re.search('\d+', field).group(0)) for field in request.POST
-                         if NAME_ADDITIONAL_FIELD_TEMPLATE in field]
-    if additional_fields:
-        addition_fields = AdditionField.objects.filter(pk__in=additional_fields)
-        for field in addition_fields:
-            AdditionFieldApp.objects.update_or_create(addition_field=field, application=user_app,
-                                                      defaults={'value': request.POST.get(
-                                                          f"{NAME_ADDITIONAL_FIELD_TEMPLATE}{field.id}")})
-
-
 def get_application_as_word(request, pk):
     """Генерирует word-файл анкеты сохраняет в буффер и возвращает"""
     word_template = WordTemplate(request, const.PATH_TO_INTERVIEW_LIST)
@@ -256,3 +259,25 @@ def update_user_application_scores(pk):
     """Обновляет баллы анкеты с pk"""
     user_app = get_object_or_404(Application, pk=pk)
     user_app.update_scores(update_fields=['fullness', 'final_score'])
+
+
+def set_is_final(application, value):
+    """Разблокирует заявку для бронирования"""
+    application.is_final = value
+    application.save(update_fields=['is_final', ])
+
+
+def set_work_group(application, value):
+    """Устанавливает значение рабочей группы заявки"""
+    application.work_group = value
+    application.save(update_fields=["work_group"])
+
+
+def get_booking(slave):
+    """
+    Возвращает экземпляр бронирования заявки
+    :param slave: экземпляр Member
+    :return: экземпляр Booking переданного slave
+    """
+    booking = Booking.objects.filter(slave=slave, booking_type=get_booked_type())
+    return booking.first() if booking else False

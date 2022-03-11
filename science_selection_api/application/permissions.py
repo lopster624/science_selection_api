@@ -8,8 +8,10 @@ class IsMasterPermission(permissions.BasePermission):
 
     def has_permission(self, request, view):
         try:
+            print(request.user.member.is_master(), 'IsMasterPermission')
             return request.user.member.is_master()
         except AttributeError:
+            print(False, 'IsMasterPermission')
             return False
 
     def has_object_permission(self, request, view, obj):
@@ -30,6 +32,7 @@ class IsApplicationOwnerPermission(permissions.BasePermission):
     """ Предоставляет доступ только хозяину анкеты"""
 
     def has_object_permission(self, request, view, obj):
+        print(obj.member.user == request.user, 'IsApplicationOwnerPermission')
         return obj.member.user == request.user
 
 
@@ -37,6 +40,7 @@ class IsBookedOnMasterDirectionPermission(permissions.BasePermission):
     """ Предоставляет доступ мастеру, если данная заявка отобрана на его направление"""
 
     def has_object_permission(self, request, view, obj):
+        print(is_booked_by_user(obj.pk, request.user), 'IsBookedOnMasterDirectionPermission')
         return is_booked_by_user(obj.pk, request.user)
 
 
@@ -44,4 +48,5 @@ class ApplicationIsNotFinalPermission(permissions.BasePermission):
     """ Предоставляет доступ к анкете, если она не заблокирована(is_final) """
 
     def has_object_permission(self, request, view, obj):
-        return obj.is_final
+        print(not obj.is_final, 'ApplicationIsNotFinalPermission')
+        return not obj.is_final

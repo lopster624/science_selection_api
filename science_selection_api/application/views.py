@@ -3,7 +3,6 @@ from django.utils.encoding import escape_uri_path
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
-from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,9 +17,9 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
     ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
-    BookingSerializer, BookingCreateSerializer, WorkGroupSerializer
+    BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
-    get_application_as_word, get_service_file, update_user_application_scores
+    get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final
 from utils import constants as const
 
 """
@@ -61,6 +60,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         просмотр и установка рабочей группы - мастер, если заявка отобрана на его направление
         просмотр списка компетенций - master или хозяин заявки
         установка компетенций - хозяин заявки, если заявка не is_final
+        установка is_final - мастер, если заявка отобрана на его направление
     """
     # todo: добавить доп. поля в анкету, фильтрацию, пагинацию
     queryset = Application.objects.all()
@@ -69,9 +69,9 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         'set_chosen_direction_list': ChooseDirectionSerializer,
         'get_work_group': ApplicationWorkGroupSerializer,
         'set_work_group': ApplicationWorkGroupSerializer,
+        'set_is_final': ApplicationIsFinalSerializer,
         'list': ApplicationListSerializer,
         'get_competences_list': ApplicationCompetenciesSerializer,
-
     }
     default_master_serializer_class = ApplicationMasterDetailSerializer
     slave_serializers = {
@@ -85,15 +85,16 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     permission_classes_per_method = {
         'list': [IsMasterPermission, ],  # проверено
         'retrieve': [IsMasterPermission | IsApplicationOwnerPermission],  # проверено
-        'create': [IsSlavePermission, ],
-        'update': [(IsApplicationOwnerPermission & IsMasterPermission & ApplicationIsNotFinalPermission) |
-                   IsBookedOnMasterDirectionPermission],
-        'destroy': [IsAdminUser, ],
-        'get_chosen_direction_list': [IsMasterPermission | IsApplicationOwnerPermission],
-        'set_chosen_direction_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],
-        'download_application_as_word': [IsMasterPermission, ],
-        'get_work_group': [IsBookedOnMasterDirectionPermission, ],
-        'set_work_group': [IsBookedOnMasterDirectionPermission, ],
+        'create': [IsSlavePermission, ],  # проверено
+        'update': [((IsApplicationOwnerPermission | IsMasterPermission) & ApplicationIsNotFinalPermission) |
+                   IsBookedOnMasterDirectionPermission],  # проверено
+        'destroy': [IsAdminUser, ],  # проверено
+        'set_is_final': [IsBookedOnMasterDirectionPermission, ],  # проверено
+        'get_chosen_direction_list': [IsApplicationOwnerPermission | IsMasterPermission],  # проверено
+        'set_chosen_direction_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],  # проверено
+        'download_application_as_word': [IsMasterPermission, ],  # проверено
+        'get_work_group': [IsBookedOnMasterDirectionPermission, ],  # проверено
+        'set_work_group': [IsBookedOnMasterDirectionPermission, ],  # проверено
         'get_competences_list': [IsMasterPermission | IsApplicationOwnerPermission],
         'set_competences_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],
     }
@@ -109,10 +110,6 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         application = serializer.save(member=self.request.user.member)
         update_user_application_scores(pk=application.pk)
 
-    def perform_destroy(self, instance):
-        instance.delete()
-        update_user_application_scores(pk=self.kwargs['pk'])
-
     def perform_update(self, serializer):
         serializer.save()
         update_user_application_scores(pk=self.kwargs['pk'])
@@ -120,7 +117,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='directions')
     def get_chosen_direction_list(self, request, pk=None):
         """Отдает список всех выбранных направлений пользователя с анкетой pk=pk"""
-        queryset = Direction.objects.filter(application__pk=pk)
+        queryset = Direction.objects.filter(application=self.get_object())
         serializer = DirectionDetailSerializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -129,30 +126,27 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         """Сохраняет список всех выбранных направлений пользователя с анкетой pk=pk"""
         serializer = ChooseDirectionSerializer(data=request.data, many=True)
         if serializer.is_valid(raise_exception=True):
-            user_app = serializer.save(pk=pk)
+            user_app = serializer.save(user_app=self.get_object())
             return Response(user_app, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'], url_path='download')
     def download_application_as_word(self, request, pk=None):
         """Генерирует word файл анкеты и позволяет скачать его """
-        user_app = get_object_or_404(Application.objects.only('member'), pk=pk)
         user_docx = get_application_as_word(request, pk)
         response = FileResponse(user_docx, content_type='application/docx')
         response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path(
-            f"Анкета_{user_app.member.user.last_name}.docx") + '"'
+            f"Анкета_{self.get_object().member.user.last_name}.docx") + '"'
         return response
 
     @action(detail=True, methods=['get'], url_path='work_group')
     def get_work_group(self, request, pk=None):
         """Отдает выбранную рабочую группу пользователя с анкетой pk=pk"""
-        queryset = Application.objects.filter(pk=pk)
-        serializer = ApplicationWorkGroupSerializer(queryset)
+        serializer = ApplicationWorkGroupSerializer(self.get_object())
         return Response(serializer.data)
 
     @get_work_group.mapping.patch
     def set_work_group(self, request, pk=None):
         """Сохраняет выбранную рабочую группу пользователя с анкетой pk=pk"""
-        # TODO: Проверять, что заявка забронирована на данное направление и это рабочая группа данного направления.
         serializer = ApplicationWorkGroupSerializer(self.get_object(), data=request.data, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
@@ -172,6 +166,14 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         """
         """Сохраняет выбранные компетенции пользователя с анкетой pk=pk"""
         serializer = ApplicationCompetenciesCreateSerializer(data=request.data, many=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='blocking')
+    def set_is_final(self, request, pk=None):
+        """Меняет статус заблокированности анкеты для редактирования"""
+        serializer = ApplicationIsFinalSerializer(self.get_object(), data=request.data, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -250,8 +252,10 @@ class BookingViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         # Удаляет рабочую группу
         if instance.slave.application.work_group and instance.booking_type == get_booked_type():
-            instance.slave.application.work_group = None
-            instance.slave.application.save(update_fields=["work_group"])
+            set_work_group(instance.slave.application, None)
+        # Разблокирует анкету, если она заблокирована
+        if instance.slave.application.is_final:
+            set_is_final(instance.slave.application, False)
         instance.delete()
 
 
