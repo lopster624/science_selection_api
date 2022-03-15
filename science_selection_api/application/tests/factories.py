@@ -7,7 +7,7 @@ from factory import post_generation
 from factory.django import DjangoModelFactory
 
 from account.models import Member, Role, Affiliation, BookingType, Booking
-from application.models import Application, Direction, WorkGroup
+from application.models import Application, Direction, WorkGroup, Competence, ApplicationCompetencies
 from utils.constants import BOOKED
 
 
@@ -136,3 +136,28 @@ class ApplicationFactory(DjangoModelFactory):
             return
         if value:
             self.directions.set(value)
+
+
+class CompetenceFactory(DjangoModelFactory):
+    class Meta:
+        model = Competence
+
+    parent_node = factory.SubFactory('application.tests.factories.CompetenceFactory')
+    name = factory.Faker('word')
+    is_estimated = factory.Faker('boolean')
+
+    @post_generation
+    def directions(self, create, value, **kwargs):
+        if not create:
+            return
+        if value:
+            self.directions.set(value)
+
+
+class ApplicationCompetenciesFactory(DjangoModelFactory):
+    class Meta:
+        model = ApplicationCompetencies
+
+    application = factory.SubFactory(ApplicationFactory)
+    competence = factory.SubFactory(CompetenceFactory)
+    level = factory.Faker('pyint', min_value=0, max_value=3)

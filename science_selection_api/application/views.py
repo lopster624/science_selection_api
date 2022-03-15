@@ -25,8 +25,7 @@ from utils import constants as const
 """
 todo: не реализован функционал: загрузка/удаление файлов пользователями, тестирование, 
 добавление компетенций в направление, удаление компетенций из направлений, список выбранных/не выбранных компетенций на 
-направление, добавление, удаление и изменение заметок, блокирование анкеты, рабочий список, установка ограничений 
-по ролям, is_final и направлениям, пагинации, фильтры, поиски,
+направление, добавление, удаление и изменение заметок, рабочий список, пагинации, фильтры, поиски,
 """
 
 
@@ -46,21 +45,6 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     """
     Главный список заявок
     Также дополнительные вложенные эндпоинты для получения и сохранения компетенций, направлений, рабочих групп.
-    Доступ:
-        лист заявок - master
-        заявка - master или хозяин заявки
-        создание заявки - slave
-        редактирование заявки - хозяин заявки и master, если заявка не is_final, мастер,
-                                если заявка отобрана на его направление
-
-        удаление заявки - админ
-        список направлений - master или хозяин заявки
-        установка направления - хозяин заявки, если заявка не is_final
-        скачать анкету word - master
-        просмотр и установка рабочей группы - мастер, если заявка отобрана на его направление
-        просмотр списка компетенций - master или хозяин заявки
-        установка компетенций - хозяин заявки, если заявка не is_final
-        установка is_final - мастер, если заявка отобрана на его направление
     """
     # todo: добавить доп. поля в анкету, фильтрацию, пагинацию
     queryset = Application.objects.all()
@@ -83,20 +67,20 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     }
     default_slave_serializer_class = ApplicationSlaveDetailSerializer
     permission_classes_per_method = {
-        'list': [IsMasterPermission, ],  # проверено
-        'retrieve': [IsMasterPermission | IsApplicationOwnerPermission],  # проверено
-        'create': [IsSlavePermission, ],  # проверено
+        'list': [IsMasterPermission, ],
+        'retrieve': [IsMasterPermission | IsApplicationOwnerPermission],
+        'create': [IsSlavePermission, ],
         'update': [((IsApplicationOwnerPermission | IsMasterPermission) & ApplicationIsNotFinalPermission) |
-                   IsBookedOnMasterDirectionPermission],  # проверено
-        'destroy': [IsAdminUser, ],  # проверено
-        'set_is_final': [IsBookedOnMasterDirectionPermission, ],  # проверено
-        'get_chosen_direction_list': [IsApplicationOwnerPermission | IsMasterPermission],  # проверено
-        'set_chosen_direction_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],  # проверено
-        'download_application_as_word': [IsMasterPermission, ],  # проверено
-        'get_work_group': [IsBookedOnMasterDirectionPermission, ],  # проверено
-        'set_work_group': [IsBookedOnMasterDirectionPermission, ],  # проверено
+                   IsBookedOnMasterDirectionPermission],
+        'destroy': [IsAdminUser, ],
+        'set_is_final': [IsBookedOnMasterDirectionPermission, ],
+        'get_chosen_direction_list': [IsApplicationOwnerPermission | IsMasterPermission],
+        'set_chosen_direction_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],
+        'download_application_as_word': [IsMasterPermission, ],
+        'get_work_group': [IsBookedOnMasterDirectionPermission, ],
+        'set_work_group': [IsBookedOnMasterDirectionPermission, ],
         'get_competences_list': [IsMasterPermission | IsApplicationOwnerPermission],
-        'set_competences_list': [ApplicationIsNotFinalPermission, IsApplicationOwnerPermission],
+        'set_competences_list': [IsApplicationOwnerPermission, ApplicationIsNotFinalPermission],
     }
 
     def get_serializer_class(self):
@@ -155,16 +139,14 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='competences')
     def get_competences_list(self, request, pk=None):
         """Отдает список всех оцененных компетенций пользователя с анкетой pk=pk"""
-        queryset = ApplicationCompetencies.objects.filter(application=pk)
+        queryset = ApplicationCompetencies.objects.filter(application=self.get_object())
         serializer = ApplicationCompetenciesSerializer(queryset, many=True)
         return Response(serializer.data)
 
     @get_competences_list.mapping.post
     def set_competences_list(self, request, pk=None):
-        """
-        todo: Проверять, что свои компетенции может менять только владелец анкеты. И только если анкета не заблокирована
-        """
         """Сохраняет выбранные компетенции пользователя с анкетой pk=pk"""
+        self.get_object()  # нужен для работы permissions
         serializer = ApplicationCompetenciesCreateSerializer(data=request.data, many=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()

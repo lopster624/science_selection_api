@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from random import randint
 
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -8,7 +9,8 @@ from rest_framework.test import APITestCase
 
 from application.models import Application
 from application.tests.factories import UserFactory, RoleFactory, DirectionFactory, MemberFactory, AffiliationFactory, \
-    ApplicationFactory, BookingTypeFactory, BookingFactory, WorkGroupFactory
+    ApplicationFactory, BookingTypeFactory, BookingFactory, WorkGroupFactory, CompetenceFactory, \
+    ApplicationCompetenciesFactory
 from application.utils import set_is_final
 from utils import constants as const
 
@@ -36,6 +38,24 @@ def create_uniq_member(role):
     affiliation = AffiliationFactory.create(direction=DirectionFactory.create())
     return MemberFactory.create(affiliations=[affiliation, ], role=role,
                                 user=UserFactory.create())
+
+
+def create_batch_competences_scores(count, application, directions=None, parent=None):
+    """
+    Создает несколько уникальных компетенций и оценок компетенций
+    :param count: количество создаваемых компетенций
+    :param application: экземпляр заявки
+    :param directions: список направлений компетенций
+    :param parent: компетенция-родитель
+    :return: список созданных компетенций
+    """
+    competences = []
+    for _ in range(count):
+        competence = CompetenceFactory.create(parent_node=parent,
+                                              directions=directions or DirectionFactory.create_batch(3))
+        competences.append(competence)
+        ApplicationCompetenciesFactory.create(application=application, competence=competence)
+    return competences
 
 
 class ApplicationsTest(APITestCase):
@@ -69,6 +89,11 @@ class ApplicationsTest(APITestCase):
         self.another_work_group = WorkGroupFactory.create(
             affiliation=AffiliationFactory.create(direction=DirectionFactory.create()))
 
+        # создаем компетенции с оценками
+        main_competence = create_batch_competences_scores(count=3,
+                                                          application=self.slave_application_main)
+        create_batch_competences_scores(count=10, directions=[direction1], application=self.slave_application_main,
+                                        parent=main_competence.pop())
         self.correct_application_data = {
             "birth_day": "2000-02-12",
             "birth_place": "Ульяновск",
@@ -79,6 +104,11 @@ class ApplicationsTest(APITestCase):
             "draft_season": 1,
             "ready_to_secret": True
         }
+        self.correct_competence_data = [
+            {'application': self.slave_application_main.id,
+             'competence': CompetenceFactory.create(parent_node=None).id,
+             'level': randint(0, 3)} for _ in range(5)
+        ]
 
     def test_application_list_by_master(self):
         """Получение списка заявок мастером"""
@@ -452,3 +482,57 @@ class ApplicationsTest(APITestCase):
         response = self.client.patch(reverse('application-get-work-group', args=(self.slave_application_main.id,)),
                                      data={'work_group': self.another_work_group.id})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_get_competences_list_by_unauthorized_user(self):
+        """ Получение списка компетенций неавторизованным пользователем """
+        response = self.client.get(reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_competences_list_by_master(self):
+        """ Получение списка компетенций мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_competences_list_by_correct_slave(self):
+        """ Получение списка компетенций корректным кандидатом """
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.get(
+            reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_competences_list_by_incorrect_slave(self):
+        """ Получение списка компетенций некорректным кандидатом """
+        self.client.force_login(user=self.slave_application.member.user)
+        response = self.client.get(
+            reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_set_competences_list_by_unauthorized_user(self):
+        """ Установка списка компетенций неавторизованным пользователем """
+        response = self.client.post(reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
+                                    data=self.correct_competence_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_set_competences_list_by_master(self):
+        """ Установка списка компетенций мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.post(reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
+                                    data=self.correct_competence_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_set_competences_list_by_correct_slave(self):
+        """ Установка списка компетенций корректным кандидатом """
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.post(
+            reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
+            data=self.correct_competence_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_set_competences_list_by_incorrect_slave(self):
+        """ Установка списка компетенций некорректным кандидатом """
+        self.client.force_login(user=self.slave_application.member.user)
+        response = self.client.post(
+            reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
+            data=self.correct_competence_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
