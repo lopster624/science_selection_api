@@ -32,8 +32,6 @@ class EducationTest(APITestCase):
         self.slave_application = create_uniq_application(slave_role, directions=DirectionFactory.create_batch(3))
         self.slave_application_main = create_uniq_application(slave_role, directions=[direction1])
 
-        self.slave_user_without_app = UserFactory.create()
-        MemberFactory.create(role=slave_role, user=self.slave_user_without_app)
         # создаем бронирование
         BookingFactory.create(master=self.master_second_member, slave=self.slave_application_main.member,
                               affiliation=self.main_affiliation, booking_type=BookingTypeFactory.create())

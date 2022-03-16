@@ -26,24 +26,6 @@ class PermissionPolicyMixin:
         super().check_permissions(request)
 
 
-class OnlyMasterAccessMixin:
-    """Проверяет,что пользователь обладает ролью мастера"""
-
-    def dispatch(self, request, *args, **kwargs):
-        if not check_role(request.user, MASTER_ROLE_NAME):
-            raise PermissionDenied('Недостаточно прав для входа на данную страницу.')
-        return super().dispatch(request, *args, **kwargs)
-
-
-class OnlySlaveAccessMixin:
-    """Проверяет,что пользователь обладает ролью оператора"""
-
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.member.is_slave():
-            raise PermissionDenied('Недостаточно прав для входа на данную страницу.')
-        return super().dispatch(request, *args, **kwargs)
-
-
 class DataApplicationMixin:
     def get_root_competences(self):
         return Competence.objects.filter(parent_node__isnull=True).prefetch_related('child', 'child__child')
@@ -106,9 +88,3 @@ class DataApplicationMixin:
             item = [*old, affiliation] if old else [affiliation]
             master_directions_affiliations.update({affiliation.direction.id: item})
         return master_directions_affiliations
-
-
-class MasterDataMixin(LoginRequiredMixin, OnlyMasterAccessMixin, DataApplicationMixin):
-    """
-    Миксин для авторизированного пользователя с ролью "Отбирающий" и методами DataApplicationMixin
-    """

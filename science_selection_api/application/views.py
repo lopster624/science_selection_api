@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from account.models import Booking
-from application.mixins import PermissionPolicyMixin
+from application.mixins import PermissionPolicyMixin, DataApplicationMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
@@ -197,7 +197,7 @@ class EducationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         update_user_application_scores(pk=self.kwargs['application_pk'])
 
 
-class CompetenceViewSet(viewsets.ModelViewSet):
+class CompetenceViewSet(PermissionPolicyMixin, viewsets.ModelViewSet, DataApplicationMixin):
     """
     Список компетенций в иерархии или создание новой.
     Доступ:
@@ -205,9 +205,21 @@ class CompetenceViewSet(viewsets.ModelViewSet):
         компетенция - any
         создание - мастер
     """
+    permission_classes_per_method = {
+        'list': [],
+        'retrieve': [],
+        'create': [IsMasterPermission, ],
+    }
     serializer_class = CompetenceDetailSerializer
     queryset = Competence.objects.all()
     http_method_names = ['get', 'post', 'head', 'options', 'trace']
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'master_directions': self.get_master_directions()})
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class BookingViewSet(viewsets.ModelViewSet):

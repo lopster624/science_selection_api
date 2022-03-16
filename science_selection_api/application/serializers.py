@@ -210,6 +210,14 @@ class CompetenceDetailSerializer(serializers.ModelSerializer):
         list_serializer_class = FilteredCompetenceListSerializer
         extra_kwargs = {'parent_node': {'write_only': True}, 'directions': {'write_only': True}}
 
+    def validate_directions(self, directions):
+        """ Проверяет, что выбранные направления принадлежат мастеру"""
+        master_directions = self.context.get('master_directions')
+        for direction in directions:
+            if direction not in master_directions:
+                raise serializers.ValidationError(f'Направление {direction} вам не принадлежит!')
+        return directions
+
 
 class CompetenceSerializer(serializers.ModelSerializer):
     """ Компетенция без уровня владения """
