@@ -1,4 +1,3 @@
-# todo написать factory
 from datetime import datetime
 
 import factory
@@ -7,8 +6,49 @@ from factory import post_generation
 from factory.django import DjangoModelFactory
 
 from account.models import Member, Role, Affiliation, BookingType, Booking
-from application.models import Application, Direction, WorkGroup, Competence, ApplicationCompetencies
+from application.models import Application, Direction, WorkGroup, Competence, ApplicationCompetencies, Education
 from utils.constants import BOOKED
+
+
+def create_uniq_application(slave_role, directions):
+    """
+    Создает уникальную заявку с user и member
+    :param slave_role: роль slave
+    :param directions: список направлений
+    :return: объект созданной заявки
+    """
+    user = UserFactory.create()
+    member = MemberFactory.create(role=slave_role, user=user)
+    return ApplicationFactory.create(member=member, directions=directions)
+
+
+def create_uniq_member(role):
+    """
+    создает уникального member'а
+    :param role: объект роли
+    :return: экземляр Member
+    """
+    affiliation = AffiliationFactory.create(direction=DirectionFactory.create())
+    return MemberFactory.create(affiliations=[affiliation, ], role=role,
+                                user=UserFactory.create())
+
+
+def create_batch_competences_scores(count, application, directions=None, parent=None):
+    """
+    Создает несколько уникальных компетенций и оценок компетенций
+    :param count: количество создаваемых компетенций
+    :param application: экземпляр заявки
+    :param directions: список направлений компетенций
+    :param parent: компетенция-родитель
+    :return: список созданных компетенций
+    """
+    competences = []
+    for _ in range(count):
+        competence = CompetenceFactory.create(parent_node=parent,
+                                              directions=directions or DirectionFactory.create_batch(3))
+        competences.append(competence)
+        ApplicationCompetenciesFactory.create(application=application, competence=competence)
+    return competences
 
 
 class RoleFactory(DjangoModelFactory):
@@ -161,3 +201,18 @@ class ApplicationCompetenciesFactory(DjangoModelFactory):
     application = factory.SubFactory(ApplicationFactory)
     competence = factory.SubFactory(CompetenceFactory)
     level = factory.Faker('pyint', min_value=0, max_value=3)
+
+
+class EducationFactory(DjangoModelFactory):
+    class Meta:
+        model = Education
+
+    application = factory.SubFactory(ApplicationFactory)
+    education_type = factory.Faker('random_element', elements=['b', 'm', 'a', 's'])
+    university = factory.Faker('word')
+    specialization = factory.Faker('sentence')
+    avg_score = factory.Faker('pyfloat', min_value=1.0, max_value=5.0)
+    end_year = factory.Faker('year')
+    is_ended = factory.Faker('boolean')
+    name_of_education_doc = factory.Faker('sentence')
+    theme_of_diploma = factory.Faker('sentence')

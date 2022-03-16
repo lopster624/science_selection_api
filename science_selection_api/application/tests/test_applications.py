@@ -9,53 +9,12 @@ from rest_framework.test import APITestCase
 
 from application.models import Application
 from application.tests.factories import UserFactory, RoleFactory, DirectionFactory, MemberFactory, AffiliationFactory, \
-    ApplicationFactory, BookingTypeFactory, BookingFactory, WorkGroupFactory, CompetenceFactory, \
-    ApplicationCompetenciesFactory
+    BookingTypeFactory, BookingFactory, WorkGroupFactory, CompetenceFactory, create_uniq_application, \
+    create_batch_competences_scores, create_uniq_member
 from application.utils import set_is_final
 from utils import constants as const
 
 logging.disable(logging.FATAL)
-
-
-def create_uniq_application(slave_role, directions):
-    """
-    Создает уникальную заявку с user и member
-    :param slave_role: роль slave
-    :param directions: список направлений
-    :return: объект созданной заявки
-    """
-    user = UserFactory.create()
-    member = MemberFactory.create(role=slave_role, user=user)
-    return ApplicationFactory.create(member=member, directions=directions)
-
-
-def create_uniq_member(role):
-    """
-    создает уникального member'а
-    :param role: объект роли
-    :return: экземляр Member
-    """
-    affiliation = AffiliationFactory.create(direction=DirectionFactory.create())
-    return MemberFactory.create(affiliations=[affiliation, ], role=role,
-                                user=UserFactory.create())
-
-
-def create_batch_competences_scores(count, application, directions=None, parent=None):
-    """
-    Создает несколько уникальных компетенций и оценок компетенций
-    :param count: количество создаваемых компетенций
-    :param application: экземпляр заявки
-    :param directions: список направлений компетенций
-    :param parent: компетенция-родитель
-    :return: список созданных компетенций
-    """
-    competences = []
-    for _ in range(count):
-        competence = CompetenceFactory.create(parent_node=parent,
-                                              directions=directions or DirectionFactory.create_batch(3))
-        competences.append(competence)
-        ApplicationCompetenciesFactory.create(application=application, competence=competence)
-    return competences
 
 
 class ApplicationsTest(APITestCase):

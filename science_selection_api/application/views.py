@@ -3,6 +3,7 @@ from django.utils.encoding import escape_uri_path
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,7 +12,8 @@ from account.models import Booking
 from application.mixins import PermissionPolicyMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
-    ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission
+    ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
+    IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
@@ -161,19 +163,24 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class EducationViewSet(viewsets.ModelViewSet):
+class EducationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     """
     Список образований или добавление новых.
-    Доступ:
-        лист - master, хозяин заявки
-        образование - master или хозяин заявки
-        создание - master, хозяин заявки, если заявка не is_final, мастер, если заявка отобрана на его направление
-        редактирование - хозяин заявки и master, если заявка не is_final, мастер, если заявка отобрана на его направление
-        удаление - хозяин заявки и master, если заявка не is_final, мастер, если заявка отобрана на его направление
     """
     serializer_class = EducationDetailSerializer
+    permission_classes_per_method = {
+        'list': [IsMasterPermission | IsNestedApplicationOwnerPermission],
+        'retrieve': [IsMasterPermission | IsNestedApplicationOwnerPermission],
+        'create': [((IsNestedApplicationOwnerPermission | IsMasterPermission) & IsNotFinalNestedApplicationPermission) |
+                   IsNestedApplicationBookedOnMasterDirectionPermission],
+        'update': [((IsNestedApplicationOwnerPermission | IsMasterPermission) & IsNotFinalNestedApplicationPermission) |
+                   IsNestedApplicationBookedOnMasterDirectionPermission],
+        'destroy': [
+            ((IsNestedApplicationOwnerPermission | IsMasterPermission) & IsNotFinalNestedApplicationPermission) |
+            IsNestedApplicationBookedOnMasterDirectionPermission
+        ]
+    }
 
-    # TODO: Проверять, что slave может изменить application, к которому относится образование
     def get_queryset(self):
         return Education.objects.filter(application=self.kwargs['application_pk'])
 

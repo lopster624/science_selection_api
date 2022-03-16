@@ -16,7 +16,6 @@ domains_router.register(r'educations', EducationViewSet, basename='educations')
 domains_router.register(r'booking', BookingViewSet, basename='booking')
 domains_router.register(r'wishlist', WishlistViewSet, basename='wishlist')
 
-
 urlpatterns = [
     path(r'', include(router.urls)),
     path(r'', include(domains_router.urls)),

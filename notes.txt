@@ -2,7 +2,7 @@ https://pocoz.gitbooks.io/django-v-primerah/content/glava-7-sozdanie-internet-ma
 https://django.fun/docs/django/ru/3.2/topics/http/sessions/
 https://ilyachch.gitbook.io/django-rest-framework-russian-documentation/overview/navigaciya-po-api/generic-views
 
-Библиотеки для тестирования: factoryboy, faker
+
 урл-паттерны
 [<URLPattern '^directions/$' [name='direction-list']>,
  <URLPattern '^directions\.(?P<format>[a-z0-9]+)/?$' [name='direction-list']>,
@@ -30,3 +30,9 @@ https://ilyachch.gitbook.io/django-rest-framework-russian-documentation/overview
  <URLPattern '^work-groups/(?P<pk>[^/.]+)\.(?P<format>[a-z0-9]+)/?$' [name='work-groups-detail']>,
  <URLPattern '^$' [name='api-root']>,
  <URLPattern '^\.(?P<format>[a-z0-9]+)/?$' [name='api-root']>]
+<URLPattern '^applications/(?P<application_pk>[^/.]+)/educations/$' [name='educations-list']>,
+<URLPattern '^applications/(?P<application_pk>[^/.]+)/educations/(?P<pk>[^/.]+)/$' [name='educations-detail']>,
+<URLPattern '^applications/(?P<application_pk>[^/.]+)/booking/$' [name='booking-list']>,
+<URLPattern '^applications/(?P<application_pk>[^/.]+)/booking/(?P<pk>[^/.]+)/$' [name='booking-detail']>,
+<URLPattern '^applications/(?P<application_pk>[^/.]+)/wishlist/$' [name='wishlist-list']>,
+<URLPattern '^applications/(?P<application_pk>[^/.]+)/wishlist/(?P<pk>[^/.]+)/$' [name='wishlist-detail']>]
