@@ -1,5 +1,6 @@
 from rest_framework import permissions
 
+from account.models import Booking
 from application.models import Application
 from application.utils import is_booked_by_user
 
@@ -55,8 +56,9 @@ class ApplicationIsNotFinalPermission(permissions.BasePermission):
 
 class IsNestedApplicationOwnerPermission(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        print(obj.application.member.user == request.user, 'IsApplicationOwnerPermission')
-        return obj.application.member.user == request.user
+        obj = Application.objects.get(pk=view.kwargs['application_pk'])
+        print(obj.member.user == request.user, 'IsApplicationOwnerPermission')
+        return obj.member.user == request.user
 
     def has_permission(self, request, view):
         obj = Application.objects.get(pk=view.kwargs['application_pk'])
@@ -90,3 +92,11 @@ class IsNestedApplicationBookedOnMasterDirectionPermission(permissions.BasePermi
         print(is_booked_by_user(obj.pk, request.user),
               'IsNestedApplicationBookedOnMasterDirectionPermission perm')
         return is_booked_by_user(obj.pk, request.user)
+
+
+class IsApplicationBookedByCurrentMasterPermission(permissions.BasePermission):
+    """ Предоставляет доступ мастеру, если заявка была забронирована им"""
+
+    def has_object_permission(self, request, view, obj):
+        return obj.master == request.user.member
+

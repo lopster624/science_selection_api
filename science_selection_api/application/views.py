@@ -3,7 +3,6 @@ from django.utils.encoding import escape_uri_path
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
-from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,7 +12,8 @@ from application.mixins import PermissionPolicyMixin, DataApplicationMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
-    IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission
+    IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission, \
+    IsApplicationBookedByCurrentMasterPermission
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
@@ -200,10 +200,6 @@ class EducationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 class CompetenceViewSet(PermissionPolicyMixin, viewsets.ModelViewSet, DataApplicationMixin):
     """
     Список компетенций в иерархии или создание новой.
-    Доступ:
-        список - any
-        компетенция - any
-        создание - мастер
     """
     permission_classes_per_method = {
         'list': [],
@@ -222,14 +218,14 @@ class CompetenceViewSet(PermissionPolicyMixin, viewsets.ModelViewSet, DataApplic
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
-class BookingViewSet(viewsets.ModelViewSet):
+class BookingViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     """
     Список бронирований данной анкеты, создание или удаление бронирования.
     Доступ:
-        список - any
-        бронирование - any
+        список - master или хозяин заявки # проверено
+        бронирование - master или хозяин заявки
         создание - master
-        удаление - master, если заявка отобрана на его направление
+        удаление - master, если именно мастер отобрал заявку
     """
     http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
 
@@ -238,6 +234,12 @@ class BookingViewSet(viewsets.ModelViewSet):
         'create': BookingCreateSerializer,
     }
     default_master_serializer_class = BookingSerializer
+    permission_classes_per_method = {
+        'list': [IsMasterPermission | IsNestedApplicationOwnerPermission],
+        'retrieve': [IsMasterPermission | IsNestedApplicationOwnerPermission],
+        'create': [IsMasterPermission, ],
+        'destroy': [IsMasterPermission, IsApplicationBookedByCurrentMasterPermission],
+    }
 
     def get_serializer_class(self):
         return self.serializers.get(self.action, self.default_master_serializer_class)
