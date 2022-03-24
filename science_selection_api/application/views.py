@@ -1,6 +1,6 @@
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
 from rest_framework.permissions import IsAdminUser
@@ -21,7 +21,8 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
-    get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final
+    get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
+    has_affiliation
 from utils import constants as const
 
 """
@@ -221,11 +222,6 @@ class CompetenceViewSet(PermissionPolicyMixin, viewsets.ModelViewSet, DataApplic
 class BookingViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     """
     Список бронирований данной анкеты, создание или удаление бронирования.
-    Доступ:
-        список - master или хозяин заявки # проверено
-        бронирование - master или хозяин заявки
-        создание - master
-        удаление - master, если именно мастер отобрал заявку
     """
     http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
 
@@ -265,11 +261,6 @@ class BookingViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 class WishlistViewSet(viewsets.ModelViewSet):
     """
     Список добавлений в список избранных данной анкеты, создание или удаление.
-    Доступ:
-        список - master
-        в вишлисте - master
-        создание - master
-        удаление - master, если эта запись в его принадлежности
     """
     http_method_names = ['get', 'post', 'delete', 'head', 'options', 'trace']
 
@@ -278,6 +269,7 @@ class WishlistViewSet(viewsets.ModelViewSet):
         'create': BookingCreateSerializer,
     }
     default_master_serializer_class = BookingSerializer
+    permission_classes = [IsMasterPermission]
 
     def get_serializer_class(self):
         return self.serializers.get(self.action, self.default_master_serializer_class)
@@ -289,6 +281,14 @@ class WishlistViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         application = Application.objects.get(pk=self.kwargs['application_pk'])
         serializer.save(booking_type=get_in_wishlist_type(), slave=application.member, master=self.request.user.member)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not has_affiliation(request.user.member, instance.affiliation):
+            raise serializers.ValidationError(
+                f"Вы не можете удалить данную запись! Вы не относитесь к <{instance.affiliation}>")
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WorkGroupViewSet(viewsets.ModelViewSet):

@@ -291,7 +291,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Данный кандидат уже отобран!")
             return True
         elif booking_type.name == const.IN_WISHLIST:
-            if Booking.objects.filter(slave=slave, master=master, affiliation=affiliation,
+            if Booking.objects.filter(slave=slave, affiliation=affiliation,
                                       booking_type=booking_type).exists():
                 raise serializers.ValidationError("Данная запись уже существует!")
         return True

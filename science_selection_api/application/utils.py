@@ -36,7 +36,7 @@ def has_affiliation(member, affiliation):
 
 def get_master_affiliations_id(member):
     """
-    Получает список id принадлежностей member
+    Получает список id принадлежностей мастера
     :param member: экземпляр класса Member, должен иметь роль master!
     :return: Список id принадлежностей
     """
@@ -45,7 +45,7 @@ def get_master_affiliations_id(member):
 
 def get_slave_affiliations_id(member):
     """
-    Получает список id принадлежностей member
+    Получает список id принадлежностей кандидата
     :param member: экземпляр класса Member, должен иметь роль slave!
     :return: Список id принадлежностей
     """
@@ -73,24 +73,6 @@ def check_role(user, role_name):
         return False
     except Exception:
         return False
-
-
-def check_permission_decorator(role_name=None):
-    """ Кидает исключение PermissionDenied, если роль user!=role_name
-    или текущий пользователь не является пользователем с переданным pk"""
-
-    def decorator(func):
-        def wrapper(self, request, pk, *args, **kwargs):
-            if request.user.member.role.role_name == role_name:
-                return func(self, request, pk, *args, **kwargs)
-            member = Member.objects.filter(application__id=pk).first()
-            if member != request.user.member:
-                raise PermissionDenied('Недостаточно прав для входа на данную страницу.')
-            return func(self, request, pk, *args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 def check_booking_our_or_exception(pk, user):
@@ -277,7 +259,7 @@ def get_booking(slave):
     """
     Возвращает экземпляр бронирования заявки
     :param slave: экземпляр Member
-    :return: экземпляр Booking переданного slave
+    :return: экземпляр Booking переданного slave или False
     """
     booking = Booking.objects.filter(slave=slave, booking_type=get_booked_type())
     return booking.first() if booking else False
