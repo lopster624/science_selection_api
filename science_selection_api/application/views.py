@@ -19,7 +19,8 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
     ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
-    BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer
+    BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
+    WorkGroupDetailSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation
@@ -294,9 +295,18 @@ class WishlistViewSet(viewsets.ModelViewSet):
 class WorkGroupViewSet(viewsets.ModelViewSet):
     """
     Рабочие группы
-    Доступ: master
     """
     serializer_class = WorkGroupSerializer
+    permission_classes = [IsMasterPermission]
+
+    serializers = {
+        'retrieve': WorkGroupDetailSerializer,
+        'list': WorkGroupDetailSerializer,
+    }
+    default_serializer_class = WorkGroupSerializer
+
+    def get_serializer_class(self):
+        return self.serializers.get(self.action, self.default_serializer_class)
 
     def get_queryset(self):
         return WorkGroup.objects.filter(affiliation__in=get_master_affiliations_id(self.request.user.member))
@@ -305,12 +315,16 @@ class WorkGroupViewSet(viewsets.ModelViewSet):
         """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
         serializer.save(user=self.request.user)
 
+    def perform_update(self, serializer):
+        """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
+        serializer.save(user=self.request.user)
+
 
 class DownloadServiceDocuments(APIView):
     """
     Генерация и загрузка документов по отбору
-    Доступ: master
     """
+    permission_classes = [IsMasterPermission]
 
     def get(self, request):
         """

@@ -17,7 +17,7 @@ domains_router.register(r'booking', BookingViewSet, basename='booking')
 domains_router.register(r'wishlist', WishlistViewSet, basename='wishlist')
 
 urlpatterns = [
+    path(r'download-files/', DownloadServiceDocuments.as_view(), name='download-file'),
     path(r'', include(router.urls)),
     path(r'', include(domains_router.urls)),
-    path(r'download-files/', DownloadServiceDocuments.as_view())
 ]

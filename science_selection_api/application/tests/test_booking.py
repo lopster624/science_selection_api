@@ -247,4 +247,3 @@ class BookingTest(APITestCase):
         response = self.client.delete(
             reverse('wishlist-detail', args=(self.slave_application_main.id, self.wishlist.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        print(response.data)

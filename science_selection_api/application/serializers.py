@@ -324,6 +324,15 @@ class WorkGroupSerializer(serializers.ModelSerializer):
         :param kwargs: словарь с user
         :return:
         """
-        if not has_affiliation(kwargs.get('user').member, self.validated_data.get('affiliation')):
-            raise serializers.ValidationError("Данное направление вам не принадлежит!")
+        if not has_affiliation(kwargs.pop('user').member, self.validated_data.get('affiliation')):
+            raise serializers.ValidationError("Данный взвод вам не принадлежит!")
         super().save(**kwargs)
+
+
+class WorkGroupDetailSerializer(serializers.ModelSerializer):
+    """ Рабочая группа """
+    affiliation = AffiliationSerializer()
+
+    class Meta:
+        model = WorkGroup
+        fields = '__all__'
