@@ -5,10 +5,9 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from account.models import Booking
-from application.models import WorkGroup, Application
+from application.models import Application
 from application.tests.factories import UserFactory, RoleFactory, DirectionFactory, AffiliationFactory, MemberFactory, \
-    create_uniq_application, BookingTypeFactory, BookingFactory, WorkGroupFactory, create_uniq_member
+    create_uniq_application, WorkGroupFactory, create_uniq_member
 from utils import constants as const
 
 logging.disable(logging.FATAL)
