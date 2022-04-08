@@ -83,7 +83,8 @@ DEFAULT_FILED_BLOCKS = {
 PATH_TO_INTERVIEW_LIST = os.path.join(os.path.abspath(os.curdir), os.environ.get("DJANGO_PATH_TO_INTERVIEW_LIST"))
 PATH_TO_CANDIDATES_LIST = os.path.join(os.path.abspath(os.curdir), os.environ.get("DJANGO_PATH_TO_CANDIDATES_LIST"))
 PATH_TO_RATING_LIST = os.path.join(os.path.abspath(os.curdir), os.environ.get("DJANGO_PATH_TO_RATING_LIST"))
-PATH_TO_EVALUATION_STATEMENT = os.path.join(os.path.abspath(os.curdir), os.environ.get("DJANGO_PATH_TO_EVALUATION_STATEMENT"))
+PATH_TO_EVALUATION_STATEMENT = os.path.join(os.path.abspath(os.curdir),
+                                            os.environ.get("DJANGO_PATH_TO_EVALUATION_STATEMENT"))
 PATH_TO_PSYCHOLOGICAL_TESTS = {
     os.environ.get("DJANGO_NAME_OF_FIRST_PSYCHOLOGICAL_TEST"):
         os.path.join(os.path.abspath(os.curdir), os.environ.get("DJANGO_PATH_TO_FIRST_PSYCHOLOGICAL_TEST")),
@@ -100,3 +101,10 @@ MAX_APP_DIRECTIONS = int(os.environ.get("DJANGO_MAX_APP_DIRECTIONS", 4))
 
 # шаблон для именования полей в форме html в тестах пользователей
 NAME_ADDITIONAL_FIELD_TEMPLATE = 'additional_field_'
+
+TRUE_VALUES = {
+    't', 'T', 'y', 'Y', 'yes', 'YES', 'true', 'True', 'TRUE', 'on', 'On', 'ON', '1', 1, True
+}
+FALSE_VALUES = {
+    'f', 'F', 'n', 'N', 'no', 'NO', 'false', 'False', 'FALSE', 'off', 'Off', 'OFF', '0', 0, 0.0, False
+}

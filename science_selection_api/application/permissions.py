@@ -49,6 +49,8 @@ class ApplicationIsNotFinalPermission(permissions.BasePermission):
 
 
 class IsNestedApplicationOwnerPermission(permissions.BasePermission):
+    """ Предоставляет доступ к анкете ее автору."""
+
     def has_object_permission(self, request, view, obj):
         obj = Application.objects.get(pk=view.kwargs['application_pk'])
         return obj.member.user == request.user
@@ -86,3 +88,13 @@ class IsApplicationBookedByCurrentMasterPermission(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         return obj.master == request.user.member
 
+
+class DoesMasterHaveDirectionPermission(permissions.BasePermission):
+    """ Предоставляет доступ мастеру, если он имеет направление, переданное в kwargs"""
+
+    def has_permission(self, request, view):
+        try:
+            return view.kwargs['direction_id'] in request.user.member.affiliations.all()\
+                .values_list('direction__id', flat=True) and request.user.member.is_master()
+        except AttributeError:
+            return False

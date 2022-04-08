@@ -3,17 +3,19 @@ import re
 from io import BytesIO
 
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.db.models import Q
 from docxtpl import DocxTemplate
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, ParseError
 from rest_framework.generics import get_object_or_404
 
 from account.models import Member, Affiliation, Booking, BookingType
 from utils import constants as const
 from utils.calculations import get_current_draft_year, convert_float
 from utils.constants import BOOKED, MEANING_COEFFICIENTS, PATH_TO_RATING_LIST, \
-    PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT
+    PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT, TRUE_VALUES, FALSE_VALUES
 from utils.constants import NAME_ADDITIONAL_FIELD_TEMPLATE
-from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat
+from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat, Competence
 
 
 def has_affiliation(member, affiliation):
@@ -263,3 +265,51 @@ def get_booking(slave):
     """
     booking = Booking.objects.filter(slave=slave, booking_type=get_booked_type())
     return booking.first() if booking else False
+
+
+def get_competence_list(direction_id, picked):
+    """
+    Возвращает список компетенций направления если picked=True, иначе возвращает список невыбранных компетенций
+    на данное направление
+    :param direction_id: идентификатор направления
+    :param picked: Bool - нужно выбирать только выбранные компетенции или все, кроме выбранных
+    :return: список компетенций(queryset)
+    """
+    if picked:
+        return Competence.objects.filter(directions__id=direction_id)
+    return Competence.objects.exclude(directions__id=direction_id)
+
+
+def parse_str_to_bool(string):
+    """ Конвертирует входную строку в bool"""
+    try:
+        if string in TRUE_VALUES:
+            return True
+        elif string in FALSE_VALUES:
+            return False
+    except TypeError:
+        raise ParseError('Плохой query параметр')
+
+
+def remove_direction_from_competence_list(direction_id, competences_id):
+    """
+    Удаляет направление из списка компетенции
+    :param direction_id: id направления
+    :param competences_id: список id компетенций
+    :return:
+    """
+    with transaction.atomic():
+        for competence in Competence.objects.filter(pk__in=competences_id):
+            competence.directions.remove(direction_id)
+
+
+def add_direction_to_competence_list(direction_id, competences_id):
+    """
+    Добавляет направление в список компетенции
+    :param direction_id: id направления
+    :param competences_id: список id компетенций
+    :return:
+    """
+    with transaction.atomic():
+        for competence in Competence.objects.filter(pk__in=competences_id):
+            competence.directions.add(direction_id)

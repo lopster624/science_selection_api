@@ -13,23 +13,24 @@ from application.models import Application, Direction, Education, ApplicationCom
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
     IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission, \
-    IsApplicationBookedByCurrentMasterPermission
+    IsApplicationBookedByCurrentMasterPermission, DoesMasterHaveDirectionPermission
 from application.serializers import ChooseDirectionSerializer, \
     ApplicationListSerializer, DirectionDetailSerializer, DirectionListSerializer, ApplicationSlaveDetailSerializer, \
     ApplicationMasterDetailSerializer, EducationDetailSerializer, ApplicationWorkGroupSerializer, \
     ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
-    WorkGroupDetailSerializer
+    WorkGroupDetailSerializer, CompetenceSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
-    has_affiliation
+    has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
+    add_direction_to_competence_list
 from utils import constants as const
 
 """
 todo: не реализован функционал: загрузка/удаление файлов пользователями, тестирование, 
-добавление компетенций в направление, удаление компетенций из направлений, список выбранных/не выбранных компетенций на 
-направление, добавление, удаление и изменение заметок, рабочий список, пагинации, фильтры, поиски,
+добавление, просмотр, удаление и изменение заметок, рабочий список, пагинации, фильтры, поиски
+просмотр заявки, получение счетчика непросмотренных заявок,
 """
 
 
@@ -330,7 +331,7 @@ class DownloadServiceDocuments(APIView):
         """
         Генерирует служебные файлы формата docx на основе отобранных анкет
         query params:
-            doc: string - обозначает какой из файлов необходимо сгенерировать
+            doc: обозначает какой из файлов необходимо сгенерировать
                 candidates - для итогового списка кандидатов
                 rating - для рейтингового списка призыва
                 evaluation-statement - для итогового списка кандидатов
@@ -344,3 +345,29 @@ class DownloadServiceDocuments(APIView):
             response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path(filename) + '"'
             return response
         raise ParseError('Плохой query параметр')
+
+
+class DirectionsCompetences(APIView):
+    """ Компетенции направлений """
+    permission_classes = [DoesMasterHaveDirectionPermission]
+
+    def get(self, request, direction_id):
+        """
+        Возвращает список компетенций направления если picked=True|None, иначе возвращает список невыбранных компетенций
+        на данное направление
+        """
+        picked = parse_str_to_bool(request.GET.get('picked', True))
+        queryset = get_competence_list(direction_id, picked)
+        serializer = CompetenceSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, direction_id):
+        """ Устанавливает список компетенций направления с id=direction_id """
+        old_competences_set_id = set(get_competence_list(direction_id, True).values_list('id', flat=True))
+        try:
+            new_competences_set_id = set(request.data.get('competences', None))
+        except TypeError:
+            raise ParseError('Не были переданы необходимые параметры')
+        remove_direction_from_competence_list(direction_id, old_competences_set_id - new_competences_set_id)
+        add_direction_to_competence_list(direction_id, new_competences_set_id - old_competences_set_id)
+        return Response(status=status.HTTP_201_CREATED)
