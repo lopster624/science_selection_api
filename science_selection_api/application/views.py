@@ -2,14 +2,16 @@ from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from account.models import Booking
 from application.mixins import PermissionPolicyMixin, DataApplicationMixin
-from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup
+from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup, \
+    ApplicationNote
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
     IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission, \
@@ -20,7 +22,7 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
-    WorkGroupDetailSerializer, CompetenceSerializer
+    WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
@@ -198,6 +200,35 @@ class EducationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save()
         update_user_application_scores(pk=self.kwargs['application_pk'])
+
+
+class ApplicationNoteViewSet(viewsets.ModelViewSet, DataApplicationMixin):
+    """
+    Заметки об анкетах
+    """
+    serializer_class = ApplicationNoteSerializer
+    permission_classes = [IsMasterPermission]
+
+    def get_queryset(self):
+        return ApplicationNote.objects.filter(application=self.kwargs['application_pk'],
+                                              affiliations__in=self.get_master_affiliations_id()) \
+            .select_related('author__user').prefetch_related('affiliations').distinct()
+
+    def perform_destroy(self, instance):
+        """ Удаляет заметку, если ее пытается удалить ее автор. """
+        if instance.author != self.request.user.member:
+            raise PermissionDenied('Удалять заметку может только ее автор')
+        instance.delete()
+
+    def perform_create(self, serializer):
+        """ Сохраняет запись, установив автора и заявку """
+        application = get_object_or_404(Application, pk=self.kwargs['application_pk'])
+        serializer.save(author=self.request.user.member, application=application)
+
+    def perform_update(self, serializer):
+        """ Обновляет запись, установив автора и заявку """
+        application = get_object_or_404(Application, pk=self.kwargs['application_pk'])
+        serializer.save(author=self.request.user.member, application=application)
 
 
 class CompetenceViewSet(PermissionPolicyMixin, viewsets.ModelViewSet, DataApplicationMixin):

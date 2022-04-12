@@ -6,7 +6,8 @@ from factory import post_generation
 from factory.django import DjangoModelFactory
 
 from account.models import Member, Role, Affiliation, BookingType, Booking
-from application.models import Application, Direction, WorkGroup, Competence, ApplicationCompetencies, Education
+from application.models import Application, Direction, WorkGroup, Competence, ApplicationCompetencies, Education, \
+    ApplicationNote
 from utils.constants import BOOKED
 
 
@@ -216,3 +217,19 @@ class EducationFactory(DjangoModelFactory):
     is_ended = factory.Faker('boolean')
     name_of_education_doc = factory.Faker('sentence')
     theme_of_diploma = factory.Faker('sentence')
+
+
+class ApplicationNoteFactory(DjangoModelFactory):
+    class Meta:
+        model = ApplicationNote
+
+    application = factory.SubFactory(ApplicationFactory)
+    author = factory.SubFactory(MemberFactory)
+    text = factory.Faker('sentence')
+
+    @post_generation
+    def affiliations(self, create, value, **kwargs):
+        if not create:
+            return
+        if value:
+            self.affiliations.set(value)

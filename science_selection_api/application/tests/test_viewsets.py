@@ -1,13 +1,14 @@
 import logging
 from urllib.parse import urlencode
 
+import django
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from application.models import Application, Competence
 from application.tests.factories import UserFactory, RoleFactory, DirectionFactory, AffiliationFactory, MemberFactory, \
-    create_uniq_application, WorkGroupFactory, create_uniq_member, CompetenceFactory
+    create_uniq_application, WorkGroupFactory, create_uniq_member, CompetenceFactory, ApplicationNoteFactory
 from utils import constants as const
 
 logging.disable(logging.FATAL)
@@ -305,3 +306,178 @@ class DirectionsCompetencesTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response = self.client.get(reverse('direction-competences', args=(self.main_direction.id,)))
         self.assertEqual(len(response.data), 0)
+
+
+class ApplicationNoteViewSetTest(APITestCase):
+    def setUp(self) -> None:
+        # создаем мастера
+        self.master_user = UserFactory.create()
+        self.master_second_user = UserFactory.create()
+        self.master_role = master_role = RoleFactory.create(role_name=const.MASTER_ROLE_NAME)
+        self.main_direction = direction1 = DirectionFactory.create()
+        self.main_affiliation = affiliation = AffiliationFactory.create(direction=direction1)
+        self.master_member = MemberFactory.create(affiliations=[affiliation, ], role=master_role,
+                                                  user=self.master_user)
+        second_affiliation = AffiliationFactory.create()
+        self.master_second_member = MemberFactory.create(affiliations=[second_affiliation, ],
+                                                         role=master_role,
+                                                         user=self.master_second_user)
+        slave_role = RoleFactory.create(role_name=const.SLAVE_ROLE_NAME)
+        self.slave_application_main = create_uniq_application(slave_role, directions=[direction1])
+        ApplicationNoteFactory.create_batch(3,
+                                            application=self.slave_application_main,
+                                            author=self.master_second_member,
+                                            affiliations=[second_affiliation, ])
+        self.app_note = ApplicationNoteFactory.create(application=self.slave_application_main,
+                                                      author=self.master_member,
+                                                      affiliations=[affiliation, ])
+        self.correct_data = {'text': 'some_text', 'affiliations': [affiliation.id, ]}
+        self.correct_update_data = {'text': 'some_new_text', 'affiliations': [affiliation.id, ]}
+
+    def test_note_list_by_master(self):
+        """Получение списка заметок мастером"""
+        self.client.force_login(user=self.master_second_user)
+        response = self.client.get(reverse('notes-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3)
+
+    def test_note_list_by_slave(self):
+        """Получение заметок кандидатом"""
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.get(reverse('notes-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_note_list_by_unauthorized_user(self):
+        """Получение списка заметок неавторизованным пользователем"""
+        response = self.client.get(reverse('notes-list', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_note_by_correct_master(self):
+        """Получение заметки мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_note_by_incorrect_master(self):
+        """Получение заметки некорректным мастером"""
+        self.client.force_login(user=self.master_second_user)
+        response = self.client.get(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_note_by_slave(self):
+        """Получение заметки кандидата"""
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.get(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_note_by_unauthorized_user(self):
+        """Получение заметки неавторизованным пользователем"""
+        response = self.client.get(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_note_by_master_on_incorrect_affiliation(self):
+        """Создание заметки мастером на направление, не принадлежащее мастеру"""
+        self.client.force_login(user=self.master_second_user)
+        response = self.client.post(reverse('notes-list', args=(self.slave_application_main.id,)),
+                                    data=self.correct_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_note_by_master_without_affiliation(self):
+        """Создание заметки без направления"""
+        self.client.force_login(user=self.master_second_user)
+        response = self.client.post(reverse('notes-list', args=(self.slave_application_main.id,)),
+                                    data={'text': 'some_text'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_note_by_master_without_text(self):
+        """Создание заметки без текста"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.post(reverse('notes-list', args=(self.slave_application_main.id,)),
+                                    data={'affiliations': [self.main_affiliation.id, ]})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_note_by_master(self):
+        """Создание заметки мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.post(reverse('notes-list', args=(self.slave_application_main.id,)),
+                                    data=self.correct_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_note_by_slave(self):
+        """Создание заметки кандидатом"""
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.post(reverse('notes-list', args=(self.slave_application_main.id,)),
+                                    data=self.correct_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_note_by_unauthorized_user(self):
+        """Создание заметки неавторизованным пользователем"""
+        response = self.client.post(reverse('notes-list', args=(self.slave_application_main.id,)),
+                                    data=self.correct_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_note_by_correct_master(self):
+        """Обновление заметки мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.put(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)),
+                                   data=self.correct_update_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_update_note_by_incorrect_master(self):
+        """Обновление заметки некорректным мастером"""
+        self.client.force_login(user=self.master_second_user)
+        response = self.client.put(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)),
+                                   data=self.correct_update_data)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_note_for_incorrect_affiliation(self):
+        """Обновление заметки с принадлежностями, не пренадлежащими мастеру"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.put(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)),
+                                   data={'text': 'text_xtexas',
+                                         'affiliations': [aff.id for aff in AffiliationFactory.create_batch(3)]})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_note_without_affiliation(self):
+        """Обновление заметки без принадлежностей"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.put(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)),
+                                   data={'text': 'text_xtexas',
+                                         'affiliations': []})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_note_by_slave(self):
+        """Обновление заметки кандидатом"""
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.put(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)),
+                                   data=self.correct_update_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_note_by_unauthorized_user(self):
+        """Обновление заметки неавторизованным пользователем"""
+        response = self.client.put(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)),
+                                   data=self.correct_update_data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_destroy_note_by_correct_master(self):
+        """Удаление заметки мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.delete(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_destroy_note_by_incorrect_master(self):
+        """Удаление заметки некорректным мастером"""
+        self.client.force_login(user=self.master_second_user)
+        response = self.client.delete(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_destroy_note_by_slave(self):
+        """Удаление заметки кандидата"""
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.delete(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_destroy_note_by_unauthorized_user(self):
+        """Удаление заметки неавторизованным пользователем"""
+        response = self.client.delete(reverse('notes-detail', args=(self.slave_application_main.id, self.app_note.id)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

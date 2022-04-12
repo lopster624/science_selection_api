@@ -26,6 +26,7 @@ class NoHTTPReferer(Exception):
 
 def custom_exception_handler(exc, context):
     response = exception_handler(exc, context)
+    # print(exc)
     if isinstance(exc, IntegrityError) and not response:
         response = Response(
             {

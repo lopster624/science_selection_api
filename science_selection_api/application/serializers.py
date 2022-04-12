@@ -3,8 +3,8 @@ from rest_framework import serializers
 
 from account.models import Member, Booking, Affiliation
 from utils import constants as const
-from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup
-from .utils import has_affiliation, get_booking
+from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup, ApplicationNote
+from .utils import has_affiliation, get_booking, get_master_affiliations_id
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -336,3 +336,23 @@ class WorkGroupDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkGroup
         fields = '__all__'
+
+
+class ApplicationNoteSerializer(serializers.ModelSerializer):
+    """ Заметка о заявке """
+    author = MemberListSerialiser(read_only=True)
+
+    class Meta:
+        model = ApplicationNote
+        exclude = ('application',)
+
+    def save(self, **kwargs):
+        """ Проверяет, что автор выбрал только свои принадлежности и сохраняет """
+        master_affiliations = get_master_affiliations_id(kwargs.get('author'))
+        affiliations = self.validated_data.get('affiliations', None)
+        if not affiliations:
+            raise serializers.ValidationError(f'Не выбран взвод, для которого будет видна заметка!')
+        for affiliation in affiliations:
+            if affiliation.id not in master_affiliations:
+                raise serializers.ValidationError(f'{affiliation} не является вашим!')
+        super().save(**kwargs)
