@@ -11,7 +11,7 @@ from application.models import Application
 from application.tests.factories import UserFactory, RoleFactory, DirectionFactory, MemberFactory, AffiliationFactory, \
     BookingTypeFactory, BookingFactory, WorkGroupFactory, CompetenceFactory, create_uniq_application, \
     create_batch_competences_scores, create_uniq_member
-from application.utils import set_is_final
+from application.utils import set_is_final, has_application_viewed
 from utils import constants as const
 
 logging.disable(logging.FATAL)
@@ -313,14 +313,14 @@ class ApplicationsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_chosen_direction_list_by_correct_slave(self):
-        """ Установка списка направлений кандидатом"""
+        """Установка списка направлений кандидатом"""
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.post(reverse('application-get-chosen-direction-list',
                                             args=(self.slave_application_main.id,)), data=[{'id': 1}, {'id': 2}])
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_set_chosen_direction_list_by_correct_slave_with_final_application(self):
-        """ Установка списка направлений кандидатом"""
+        """Установка списка направлений кандидатом"""
         set_is_final(self.slave_application_main, True)
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.post(reverse('application-get-chosen-direction-list',
@@ -328,102 +328,102 @@ class ApplicationsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_download_application_as_word_by_incorrect_slave(self):
-        """ Загрузка анкеты некорректным кандидатом"""
+        """Загрузка анкеты некорректным кандидатом"""
         self.client.force_login(user=self.slave_application.member.user)
         response = self.client.get(reverse('application-download-application-as-word',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_download_application_as_word_by_master(self):
-        """ Загрузка анкеты мастером"""
+        """Загрузка анкеты мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.get(reverse('application-download-application-as-word',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_download_application_as_word_by_unauthorized_user(self):
-        """ Загрузка анкеты неавторизованным пользователем"""
+        """Загрузка анкеты неавторизованным пользователем"""
         response = self.client.get(reverse('application-download-application-as-word',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_download_application_as_word_by_correct_slave(self):
-        """ Загрузка анкеты кандидатом"""
+        """Загрузка анкеты кандидатом"""
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.get(reverse('application-download-application-as-word',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_get_work_group_by_master(self):
-        """ Получение рабочей группы мастером"""
+        """Получение рабочей группы мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.get(reverse('application-get-work-group',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_get_work_group_by_unauthorized_user(self):
-        """ Получение рабочей группы неавторизованным пользователем"""
+        """Получение рабочей группы неавторизованным пользователем"""
         response = self.client.get(reverse('application-get-work-group',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_get_work_group_as_word_by_slave(self):
-        """ Получение рабочей группы кандидатом"""
+        """Получение рабочей группы кандидатом"""
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.get(reverse('application-get-work-group',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_get_work_group_by_another_correct_master(self):
-        """ Получение рабочей группы мастером"""
+        """Получение рабочей группы мастером"""
         self.client.force_login(user=self.master_second_user)
         response = self.client.get(reverse('application-get-work-group',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_get_work_group_by_incorrect_master(self):
-        """ Получение рабочей группы некорректным мастером"""
+        """Получение рабочей группы некорректным мастером"""
         self.client.force_login(user=create_uniq_member(self.master_role).user)
         response = self.client.get(reverse('application-get-work-group',
                                            args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_work_group_by_master(self):
-        """ Установка рабочей группы мастером"""
+        """Установка рабочей группы мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.patch(reverse('application-get-work-group', args=(self.slave_application_main.id,)),
                                      data={'work_group': self.main_work_group.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_set_work_group_by_unauthorized_user(self):
-        """ Установка рабочей группы неавторизованным пользователем"""
+        """Установка рабочей группы неавторизованным пользователем"""
         response = self.client.patch(reverse('application-get-work-group', args=(self.slave_application_main.id,)),
                                      data={'work_group': self.main_work_group.id})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_work_group_as_word_by_slave(self):
-        """ Установка рабочей группы кандидатом"""
+        """Установка рабочей группы кандидатом"""
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.patch(reverse('application-get-work-group', args=(self.slave_application_main.id,)),
                                      data={'work_group': self.main_work_group.id})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_work_group_by_another_correct_master(self):
-        """ Установка рабочей группы мастером"""
+        """Установка рабочей группы мастером"""
         self.client.force_login(user=self.master_second_user)
         response = self.client.patch(reverse('application-get-work-group', args=(self.slave_application_main.id,)),
                                      data={'work_group': self.main_work_group.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_set_work_group_by_incorrect_master(self):
-        """ Установка рабочей группы некорректным мастером"""
+        """Установка рабочей группы некорректным мастером"""
         self.client.force_login(user=create_uniq_member(self.master_role).user)
         response = self.client.patch(reverse('application-get-work-group', args=(self.slave_application_main.id,)),
                                      data={'work_group': self.main_work_group.id})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_null_work_group_by_master(self):
-        """ Установка пустой рабочей группы мастером"""
+        """Установка пустой рабочей группы мастером"""
         self.client.force_login(user=self.master_user)
         self.slave_application_main.work_group = self.main_work_group
         self.slave_application_main.save()
@@ -434,7 +434,7 @@ class ApplicationsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_set_incorrect_work_group_by_master(self):
-        """ Установка рабочей группы другого направления мастером"""
+        """Установка рабочей группы другого направления мастером"""
         self.client.force_login(user=self.master_user)
         self.slave_application_main.work_group = self.main_work_group
         self.slave_application_main.save()
@@ -443,45 +443,45 @@ class ApplicationsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_get_competences_list_by_unauthorized_user(self):
-        """ Получение списка компетенций неавторизованным пользователем """
+        """Получение списка компетенций неавторизованным пользователем """
         response = self.client.get(reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_get_competences_list_by_master(self):
-        """ Получение списка компетенций мастером"""
+        """Получение списка компетенций мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.get(reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_get_competences_list_by_correct_slave(self):
-        """ Получение списка компетенций корректным кандидатом """
+        """Получение списка компетенций корректным кандидатом """
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.get(
             reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_get_competences_list_by_incorrect_slave(self):
-        """ Получение списка компетенций некорректным кандидатом """
+        """Получение списка компетенций некорректным кандидатом """
         self.client.force_login(user=self.slave_application.member.user)
         response = self.client.get(
             reverse('application-get-competences-list', args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_competences_list_by_unauthorized_user(self):
-        """ Установка списка компетенций неавторизованным пользователем """
+        """Установка списка компетенций неавторизованным пользователем """
         response = self.client.post(reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
                                     data=self.correct_competence_data)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_competences_list_by_master(self):
-        """ Установка списка компетенций мастером"""
+        """Установка списка компетенций мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.post(reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
                                     data=self.correct_competence_data)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_set_competences_list_by_correct_slave(self):
-        """ Установка списка компетенций корректным кандидатом """
+        """Установка списка компетенций корректным кандидатом"""
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.post(
             reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
@@ -489,9 +489,29 @@ class ApplicationsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_set_competences_list_by_incorrect_slave(self):
-        """ Установка списка компетенций некорректным кандидатом """
+        """Установка списка компетенций некорректным кандидатом"""
         self.client.force_login(user=self.slave_application.member.user)
         response = self.client.post(
             reverse('application-get-competences-list', args=(self.slave_application_main.id,)),
             data=self.correct_competence_data)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_view_application_by_master(self):
+        """Просмотр заявки мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.post(reverse('application-view-application', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(has_application_viewed(self.slave_application_main, self.master_user.member))
+
+    def test_view_application_by_slave(self):
+        """Просмотр заявки кандидатом"""
+        self.client.force_login(user=self.slave_application_main.member.user)
+        response = self.client.post(reverse('application-view-application', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(has_application_viewed(self.slave_application_main, self.master_user.member))
+
+    def test_view_application_by_unauthorized_user(self):
+        """Просмотр заявки неавторизованным пользователем"""
+        response = self.client.post(reverse('application-view-application', args=(self.slave_application_main.id,)))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(has_application_viewed(self.slave_application_main, self.master_user.member))

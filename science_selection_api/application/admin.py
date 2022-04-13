@@ -107,3 +107,8 @@ class WorkGroupAdmin(admin.ModelAdmin):
     get_applications.short_description = 'Взводы'
 
     inlines = [ApplicationInlineAdmin]
+
+
+@admin.register(models.ViewedApplication)
+class ViewedApplicationAdmin(admin.ModelAdmin):
+    list_display = ('member', 'application')

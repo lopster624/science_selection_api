@@ -3,17 +3,21 @@ from rest_framework import serializers
 
 from account.models import Member, Booking, Affiliation
 from utils import constants as const
-from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup, ApplicationNote
+from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup, ApplicationNote, \
+    ViewedApplication
 from .utils import has_affiliation, get_booking, get_master_affiliations_id
 
 
 class UserListSerializer(serializers.ModelSerializer):
+    """Список пользователей"""
+
     class Meta:
         model = User
         fields = ('first_name', 'last_name',)
 
 
 class EducationListSerializer(serializers.ModelSerializer):
+    """Список образований"""
     education_type = serializers.CharField(source='get_education_type_display')
 
     class Meta:
@@ -22,6 +26,7 @@ class EducationListSerializer(serializers.ModelSerializer):
 
 
 class EducationDetailSerializer(serializers.ModelSerializer):
+    """Образование"""
     education_type_display = serializers.CharField(source='get_education_type_display', read_only=True)
 
     class Meta:
@@ -30,6 +35,7 @@ class EducationDetailSerializer(serializers.ModelSerializer):
 
 
 class MemberListSerialiser(serializers.ModelSerializer):
+    """Список участников"""
     user = UserListSerializer()
 
     class Meta:
@@ -38,6 +44,7 @@ class MemberListSerialiser(serializers.ModelSerializer):
 
 
 class MemberDetailSerialiser(serializers.ModelSerializer):
+    """Участник"""
     user = UserListSerializer()
 
     class Meta:
@@ -46,18 +53,23 @@ class MemberDetailSerialiser(serializers.ModelSerializer):
 
 
 class DirectionDetailSerializer(serializers.ModelSerializer):
+    """Направление"""
+
     class Meta:
         model = Direction
         fields = '__all__'
 
 
 class DirectionListSerializer(serializers.ModelSerializer):
+    """Список направлений"""
+
     class Meta:
         model = Direction
         fields = ('id', 'name')
 
 
 class ApplicationListSerializer(serializers.ModelSerializer):
+    """Список заявок"""
     member = MemberListSerialiser(read_only=True)
     education = EducationListSerializer(many=True)
     draft_season = serializers.CharField(source='get_draft_season_display')
@@ -72,7 +84,7 @@ class ApplicationListSerializer(serializers.ModelSerializer):
 
 
 class ApplicationSlaveCreateSerializer(serializers.ModelSerializer):
-    """ Создание анкеты кандидатом"""
+    """Создание анкеты кандидатом"""
 
     class Meta:
         model = Application
@@ -84,7 +96,7 @@ class ApplicationSlaveCreateSerializer(serializers.ModelSerializer):
 
 
 class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
-    """ Подробная анкета только для кандидата """
+    """Подробная анкета только для кандидата"""
     draft_season = serializers.CharField(source='get_draft_season_display', read_only=True)
     is_final = serializers.BooleanField(read_only=True)
     member = MemberListSerialiser(read_only=True)
@@ -99,7 +111,7 @@ class ApplicationSlaveDetailSerializer(serializers.ModelSerializer):
 
 
 class ApplicationMasterDetailSerializer(serializers.ModelSerializer):
-    """ Подробная анкета только для мастера"""
+    """Подробная анкета только для мастера"""
     member = MemberListSerialiser(read_only=True)
     draft_season_display = serializers.CharField(source='get_draft_season_display', read_only=True)
     education = EducationDetailSerializer(many=True, read_only=True)
@@ -128,7 +140,7 @@ def validate_work_group(slave_member, work_group):
 
 
 class ApplicationWorkGroupSerializer(serializers.ModelSerializer):
-    """ Рабочая группа заявки """
+    """Рабочая группа заявки"""
 
     class Meta:
         model = Application
@@ -141,7 +153,7 @@ class ApplicationWorkGroupSerializer(serializers.ModelSerializer):
 
 
 class ApplicationIsFinalSerializer(serializers.ModelSerializer):
-    """ Рабочая группа заявки """
+    """Рабочая группа заявки"""
 
     class Meta:
         model = Application
@@ -149,7 +161,7 @@ class ApplicationIsFinalSerializer(serializers.ModelSerializer):
 
 
 class ChooseDirectionListSerializer(serializers.ListSerializer):
-    """ Установка списка направлений для заявки """
+    """Установка списка направлений для заявки"""
 
     def save(self, user_app=None):
         """
@@ -175,7 +187,7 @@ class ChooseDirectionListSerializer(serializers.ListSerializer):
 
 
 class ChooseDirectionSerializer(serializers.ModelSerializer):
-    """ Направления заявки """
+    """Направления заявки"""
     id = serializers.IntegerField()
 
     class Meta:
@@ -185,7 +197,7 @@ class ChooseDirectionSerializer(serializers.ModelSerializer):
 
 
 class RecursiveFieldSerializer(serializers.Serializer):
-    """ Рекурсивные дочерние компетенции"""
+    """Рекурсивные дочерние компетенции"""
 
     def to_representation(self, value):
         serializer = self.parent.parent.__class__(value, context=self.context)
@@ -193,7 +205,7 @@ class RecursiveFieldSerializer(serializers.Serializer):
 
 
 class FilteredCompetenceListSerializer(serializers.ListSerializer):
-    """ Фильтр только на корневые компетенции"""
+    """Фильтр только на корневые компетенции"""
 
     def to_representation(self, data):
         data = data.filter(parent_node=None)
@@ -201,7 +213,7 @@ class FilteredCompetenceListSerializer(serializers.ListSerializer):
 
 
 class CompetenceDetailSerializer(serializers.ModelSerializer):
-    """ Список компетенций """
+    """Список компетенций"""
     child = RecursiveFieldSerializer(many=True, read_only=True)
 
     class Meta:
@@ -220,7 +232,7 @@ class CompetenceDetailSerializer(serializers.ModelSerializer):
 
 
 class CompetenceSerializer(serializers.ModelSerializer):
-    """ Компетенция без уровня владения """
+    """Компетенция без уровня владения"""
 
     class Meta:
         model = Competence
@@ -228,7 +240,7 @@ class CompetenceSerializer(serializers.ModelSerializer):
 
 
 class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
-    """ Выводит оцененную компетенцию """
+    """Выводит оцененную компетенцию"""
     competence = CompetenceSerializer()
 
     class Meta:
@@ -237,7 +249,7 @@ class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
 
 
 class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
-    """ Создает оцененные компетенции """
+    """Создает оцененные компетенции"""
 
     class Meta:
         model = ApplicationCompetencies
@@ -254,7 +266,7 @@ class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
 
 
 class AffiliationSerializer(serializers.ModelSerializer):
-    """ Принадлежность """
+    """Принадлежность"""
     direction = DirectionListSerializer()
 
     class Meta:
@@ -263,7 +275,7 @@ class AffiliationSerializer(serializers.ModelSerializer):
 
 
 class BookingCreateSerializer(serializers.ModelSerializer):
-    """ Создание бронирования и добавления в вишлист """
+    """Создание бронирования и добавления в вишлист"""
 
     class Meta:
         model = Booking
@@ -302,7 +314,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
 
 class BookingSerializer(serializers.ModelSerializer):
-    """ Бронирования и добавления в вишлист """
+    """Бронирования и добавления в вишлист"""
     master = MemberDetailSerialiser()
     affiliation = AffiliationSerializer()
 
@@ -312,7 +324,7 @@ class BookingSerializer(serializers.ModelSerializer):
 
 
 class WorkGroupSerializer(serializers.ModelSerializer):
-    """ Рабочая группа """
+    """Рабочая группа"""
 
     class Meta:
         model = WorkGroup
@@ -330,7 +342,7 @@ class WorkGroupSerializer(serializers.ModelSerializer):
 
 
 class WorkGroupDetailSerializer(serializers.ModelSerializer):
-    """ Рабочая группа """
+    """Рабочая группа"""
     affiliation = AffiliationSerializer()
 
     class Meta:
@@ -339,7 +351,7 @@ class WorkGroupDetailSerializer(serializers.ModelSerializer):
 
 
 class ApplicationNoteSerializer(serializers.ModelSerializer):
-    """ Заметка о заявке """
+    """Заметка о заявке"""
     author = MemberListSerialiser(read_only=True)
 
     class Meta:
@@ -356,3 +368,11 @@ class ApplicationNoteSerializer(serializers.ModelSerializer):
             if affiliation.id not in master_affiliations:
                 raise serializers.ValidationError(f'{affiliation} не является вашим!')
         super().save(**kwargs)
+
+
+class ViewedApplicationSerializer(serializers.ModelSerializer):
+    """Просмотренная заявка"""
+
+    class Meta:
+        model = ViewedApplication
+        fields = '__all__'

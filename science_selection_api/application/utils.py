@@ -4,7 +4,6 @@ from io import BytesIO
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Q
 from docxtpl import DocxTemplate
 from rest_framework.exceptions import ValidationError, ParseError
 from rest_framework.generics import get_object_or_404
@@ -15,7 +14,7 @@ from utils.calculations import get_current_draft_year, convert_float
 from utils.constants import BOOKED, MEANING_COEFFICIENTS, PATH_TO_RATING_LIST, \
     PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT, TRUE_VALUES, FALSE_VALUES
 from utils.constants import NAME_ADDITIONAL_FIELD_TEMPLATE
-from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat, Competence
+from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat, Competence, ViewedApplication
 
 
 def has_affiliation(member, affiliation):
@@ -281,7 +280,7 @@ def get_competence_list(direction_id, picked):
 
 
 def parse_str_to_bool(string):
-    """ Конвертирует входную строку в bool"""
+    """Конвертирует входную строку в bool"""
     try:
         if string in TRUE_VALUES:
             return True
@@ -313,3 +312,13 @@ def add_direction_to_competence_list(direction_id, competences_id):
     with transaction.atomic():
         for competence in Competence.objects.filter(pk__in=competences_id):
             competence.directions.add(direction_id)
+
+
+def has_application_viewed(application, member):
+    """
+    Проверяет, была ли заявка уже просмотрена
+    :param application: объект Application
+    :param member: объект Member
+    :return: True/False
+    """
+    return ViewedApplication.objects.filter(member=member, application=application).exists()

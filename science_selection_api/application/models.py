@@ -69,7 +69,8 @@ class Application(models.Model):
     fullness = models.IntegerField(default=0, verbose_name='Процент заполненности')
     final_score = models.FloatField(default=0, verbose_name='Итоговая оценка заявки')
     is_final = models.BooleanField(default=False, verbose_name='Законченность анкеты')
-    work_group = models.ForeignKey(WorkGroup, on_delete=models.SET_NULL, blank=True, null=True, verbose_name="Рабочая группа",
+    work_group = models.ForeignKey(WorkGroup, on_delete=models.SET_NULL, blank=True, null=True,
+                                   verbose_name="Рабочая группа",
                                    related_name='application')
     # дальше идут новые поля для калькулятора
     international_articles = models.BooleanField(default=False,
@@ -232,7 +233,7 @@ class Education(models.Model):
         return f'{self.application.member.user.first_name} {self.application.member.user.last_name}: {self.get_education_type_display()}'
 
     def check_name_uni(self):
-        return True if Universities.objects.filter(name=self.university) else False
+        return True if Universities.objects.filter(name=self.university).exists() else False
 
     def get_education_type_display(self):
         return next(name for ed_type, name in self.education_program if ed_type == self.education_type)
@@ -420,3 +421,19 @@ class Specialization(models.Model):
     class Meta:
         verbose_name = 'Специальность'
         verbose_name_plural = 'Специальности'
+
+
+class ViewedApplication(models.Model):
+    """ Просмотренная заявка отбирающим"""
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name='Пользователь')
+    application = models.ForeignKey(Application, on_delete=models.CASCADE, verbose_name='Заявка', related_name='viewed')
+
+    class Meta:
+        verbose_name = 'Просмотренная заявка пользователем'
+        verbose_name_plural = 'Просмотренные заявки пользователями'
+
+    # @staticmethod
+    # def get_viewed_app_ids_from_member(member, apps):
+    #     """ Возвращает список id анкет, которые были просмотрены переданным мембером"""
+    #     return AppsViewedByMaster.objects.filter(member=member, application__in=apps).values_list('application_id',
+    #                                                                                                   flat=True)

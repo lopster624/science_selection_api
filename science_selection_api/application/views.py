@@ -22,17 +22,16 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
-    WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer
+    WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer, ViewedApplicationSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
-    add_direction_to_competence_list
+    add_direction_to_competence_list, has_application_viewed
 from utils import constants as const
 
 """
-todo: не реализован функционал: загрузка/удаление файлов пользователями, тестирование, 
-добавление, просмотр, удаление и изменение заметок, рабочий список, пагинации, фильтры, поиски
-просмотр заявки, получение счетчика непросмотренных заявок,
+todo: не реализован функционал: загрузка/удаление файлов пользователями, 
+рабочий список, пагинации, фильтры, поиски, дополнительные поля заявки(возможно),
 """
 
 
@@ -53,7 +52,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     Главный список заявок
     Также дополнительные вложенные эндпоинты для получения и сохранения компетенций, направлений, рабочих групп.
     """
-    # todo: добавить доп. поля в анкету, фильтрацию, пагинацию
+    # todo: добавить доп. поля в анкету (в том числе, была ли заявка просмотрена), фильтрацию, пагинацию
     queryset = Application.objects.all()
     master_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
@@ -63,6 +62,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         'set_is_final': ApplicationIsFinalSerializer,
         'list': ApplicationListSerializer,
         'get_competences_list': ApplicationCompetenciesSerializer,
+        'view_application': ViewedApplicationSerializer,
     }
     default_master_serializer_class = ApplicationMasterDetailSerializer
     slave_serializers = {
@@ -88,6 +88,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         'set_work_group': [IsBookedOnMasterDirectionPermission, ],
         'get_competences_list': [IsMasterPermission | IsApplicationOwnerPermission],
         'set_competences_list': [IsApplicationOwnerPermission, ApplicationIsNotFinalPermission],
+        'view_application': [IsMasterPermission, ],
     }
 
     def get_serializer_class(self):
@@ -166,6 +167,16 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         if serializer.is_valid(raise_exception=True):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='view')
+    def view_application(self, request, pk=None):
+        """Помечает заявку как просмотренную мастером"""
+        application = self.get_object()
+        serializer = ViewedApplicationSerializer(data={'application': application.id, 'member': request.user.member.id})
+        if serializer.is_valid(raise_exception=True) and not has_application_viewed(application,
+                                                                                    request.user.member.id):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class EducationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
