@@ -7,7 +7,7 @@ from factory.django import DjangoModelFactory
 
 from account.models import Member, Role, Affiliation, BookingType, Booking
 from application.models import Application, Direction, WorkGroup, Competence, ApplicationCompetencies, Education, \
-    ApplicationNote
+    ApplicationNote, File
 from utils.constants import BOOKED
 
 
@@ -233,3 +233,12 @@ class ApplicationNoteFactory(DjangoModelFactory):
             return
         if value:
             self.affiliations.set(value)
+
+
+class FileFactory(DjangoModelFactory):
+    class Meta:
+        model = File
+    member = factory.SubFactory(MemberFactory)
+    file_path = factory.django.FileField(filename='the_file.dat')
+    file_name = factory.Faker('word')
+    is_template = factory.Faker('boolean')

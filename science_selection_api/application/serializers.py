@@ -4,7 +4,7 @@ from rest_framework import serializers
 from account.models import Member, Booking, Affiliation
 from utils import constants as const
 from .models import Application, Direction, Education, Competence, ApplicationCompetencies, WorkGroup, ApplicationNote, \
-    ViewedApplication
+    ViewedApplication, File
 from .utils import has_affiliation, get_booking, get_master_affiliations_id
 
 
@@ -376,3 +376,14 @@ class ViewedApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = ViewedApplication
         fields = '__all__'
+
+
+class FileSerializer(serializers.ModelSerializer):
+    """Документ"""
+    member = MemberListSerialiser(read_only=True)
+
+    class Meta:
+        model = File
+        fields = '__all__'
+        extra_kwargs = {'file_path': {'write_only': True}, 'is_template': {'read_only': True},
+                        'file_name': {'read_only': True}}

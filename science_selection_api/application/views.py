@@ -1,17 +1,21 @@
+import os
+
+from django.db.models import Q
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
-from rest_framework import viewsets, status, serializers
+from rest_framework import viewsets, status, serializers, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import GenericViewSet
 
 from account.models import Booking
 from application.mixins import PermissionPolicyMixin, DataApplicationMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup, \
-    ApplicationNote
+    ApplicationNote, File
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
     IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission, \
@@ -22,7 +26,8 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationSlaveCreateSerializer, ApplicationCompetenciesCreateSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
-    WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer, ViewedApplicationSerializer
+    WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer, ViewedApplicationSerializer, \
+    FileSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
@@ -30,13 +35,12 @@ from application.utils import check_role, get_booked_type, get_in_wishlist_type,
 from utils import constants as const
 
 """
-todo: не реализован функционал: загрузка/удаление файлов пользователями, 
-рабочий список, пагинации, фильтры, поиски, дополнительные поля заявки(возможно),
+todo: не реализован функционал: рабочий список, пагинации, фильтры, поиски, дополнительные поля заявки(возможно)
 """
 
 
 class DirectionsViewSet(viewsets.ReadOnlyModelViewSet):
-    """Вывод всех направлений или конкретного"""
+    """Вывод всех направлений или конкретного."""
     queryset = Direction.objects.all()
     serializers = {
         'list': DirectionListSerializer
@@ -108,14 +112,14 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='directions')
     def get_chosen_direction_list(self, request, pk=None):
-        """Отдает список всех выбранных направлений пользователя с анкетой pk=pk"""
+        """Отдает список всех выбранных направлений пользователя с анкетой pk=pk."""
         queryset = Direction.objects.filter(application=self.get_object())
         serializer = DirectionDetailSerializer(queryset, many=True)
         return Response(serializer.data)
 
     @get_chosen_direction_list.mapping.post
     def set_chosen_direction_list(self, request, pk=None):
-        """Сохраняет список всех выбранных направлений пользователя с анкетой pk=pk"""
+        """Сохраняет список всех выбранных направлений пользователя с анкетой pk=pk."""
         serializer = ChooseDirectionSerializer(data=request.data, many=True)
         if serializer.is_valid(raise_exception=True):
             user_app = serializer.save(user_app=self.get_object())
@@ -123,7 +127,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='download')
     def download_application_as_word(self, request, pk=None):
-        """Генерирует word файл анкеты и позволяет скачать его """
+        """Генерирует word файл анкеты и позволяет скачать его."""
         user_docx = get_application_as_word(request, pk)
         response = FileResponse(user_docx, content_type='application/docx')
         response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path(
@@ -132,13 +136,13 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='work_group')
     def get_work_group(self, request, pk=None):
-        """Отдает выбранную рабочую группу пользователя с анкетой pk=pk"""
+        """Отдает выбранную рабочую группу пользователя с анкетой pk=pk."""
         serializer = ApplicationWorkGroupSerializer(self.get_object())
         return Response(serializer.data)
 
     @get_work_group.mapping.patch
     def set_work_group(self, request, pk=None):
-        """Сохраняет выбранную рабочую группу пользователя с анкетой pk=pk"""
+        """Сохраняет выбранную рабочую группу пользователя с анкетой pk=pk."""
         serializer = ApplicationWorkGroupSerializer(self.get_object(), data=request.data, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
@@ -146,14 +150,14 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='competences')
     def get_competences_list(self, request, pk=None):
-        """Отдает список всех оцененных компетенций пользователя с анкетой pk=pk"""
+        """Отдает список всех оцененных компетенций пользователя с анкетой pk=pk."""
         queryset = ApplicationCompetencies.objects.filter(application=self.get_object())
         serializer = ApplicationCompetenciesSerializer(queryset, many=True)
         return Response(serializer.data)
 
     @get_competences_list.mapping.post
     def set_competences_list(self, request, pk=None):
-        """Сохраняет выбранные компетенции пользователя с анкетой pk=pk"""
+        """Сохраняет выбранные компетенции пользователя с анкетой pk=pk."""
         self.get_object()  # нужен для работы permissions
         serializer = ApplicationCompetenciesCreateSerializer(data=request.data, many=True)
         if serializer.is_valid(raise_exception=True):
@@ -162,7 +166,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='blocking')
     def set_is_final(self, request, pk=None):
-        """Меняет статус заблокированности анкеты для редактирования"""
+        """Меняет статус заблокированности анкеты для редактирования."""
         serializer = ApplicationIsFinalSerializer(self.get_object(), data=request.data, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
@@ -170,7 +174,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='view')
     def view_application(self, request, pk=None):
-        """Помечает заявку как просмотренную мастером"""
+        """Помечает заявку как просмотренную мастером."""
         application = self.get_object()
         serializer = ViewedApplicationSerializer(data={'application': application.id, 'member': request.user.member.id})
         if serializer.is_valid(raise_exception=True) and not has_application_viewed(application,
@@ -226,18 +230,18 @@ class ApplicationNoteViewSet(viewsets.ModelViewSet, DataApplicationMixin):
             .select_related('author__user').prefetch_related('affiliations').distinct()
 
     def perform_destroy(self, instance):
-        """ Удаляет заметку, если ее пытается удалить ее автор. """
+        """Удаляет заметку, если ее пытается удалить ее автор."""
         if instance.author != self.request.user.member:
             raise PermissionDenied('Удалять заметку может только ее автор')
         instance.delete()
 
     def perform_create(self, serializer):
-        """ Сохраняет запись, установив автора и заявку """
+        """Сохраняет запись, установив автора и заявку."""
         application = get_object_or_404(Application, pk=self.kwargs['application_pk'])
         serializer.save(author=self.request.user.member, application=application)
 
     def perform_update(self, serializer):
-        """ Обновляет запись, установив автора и заявку """
+        """Обновляет запись, установив автора и заявку."""
         application = get_object_or_404(Application, pk=self.kwargs['application_pk'])
         serializer.save(author=self.request.user.member, application=application)
 
@@ -355,12 +359,65 @@ class WorkGroupViewSet(viewsets.ModelViewSet):
         return WorkGroup.objects.filter(affiliation__in=get_master_affiliations_id(self.request.user.member))
 
     def perform_create(self, serializer):
-        """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
+        """Сохраняет рабочую группу, передав юзера для проверки принадлежности"""
         serializer.save(user=self.request.user)
 
     def perform_update(self, serializer):
-        """ Сохраняет рабочую группу, передав юзера для проверки принадлежности """
+        """Сохраняет рабочую группу, передав юзера для проверки принадлежности"""
         serializer.save(user=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not has_affiliation(request.user.member, instance.affiliation):
+            raise serializers.ValidationError(
+                f"Вы не можете удалить данную запись! Вы не относитесь к <{instance.affiliation}>")
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FileViewSet(mixins.CreateModelMixin,
+                  mixins.RetrieveModelMixin,
+                  mixins.DestroyModelMixin,
+                  mixins.ListModelMixin,
+                  GenericViewSet):
+    """
+    Файл
+    """
+    serializer_class = FileSerializer
+    permission_classes = [IsMasterPermission | IsSlavePermission]
+
+    def get_queryset(self):
+        """
+        Отдает список шаблонов(если запрос от master) или загруженных файлов (если запрос от slave).
+        query params:
+            template: true/false - нужно возвращать шаблоны документов
+            member_id: id участника, загрузившего документ
+
+        Для slave query-параметр member_id игнорируется. Если template=True, то возвращаются шаблоны документов,
+        иначе - загруженные slave'ом документы.
+
+        Для master query-параметр template игнорируется. Если передан member_id - возвращает загруженные документы
+        member'ом, иначе - шаблонны документов.
+        """
+        member_id = self.request.user.member.id if self.request.user.member.is_slave() else self.request.GET.get(
+            'member_id', None)
+
+        is_template = not member_id if self.request.user.member.is_master() else parse_str_to_bool(
+            self.request.GET.get('template', False))
+
+        return File.objects.filter(Q(is_template=True) if is_template else Q(member__id=member_id, is_template=False))
+
+    def perform_create(self, serializer):
+        """Сохраняет файл, передав доп. информацию."""
+        serializer.save(member=self.request.user.member,
+                        file_name=os.path.basename(serializer.validated_data.get('file_path').name),
+                        is_template=self.request.user.member.is_master())
+
+    def perform_destroy(self, instance):
+        """Удаляет файл, если его пытается удалить его создатель."""
+        if instance.member != self.request.user.member:
+            raise PermissionDenied('Удалять файл может только его создатель.')
+        instance.delete()
 
 
 class DownloadServiceDocuments(APIView):
