@@ -7,6 +7,7 @@ from django.db import transaction
 from docxtpl import DocxTemplate
 from rest_framework.exceptions import ValidationError, ParseError
 from rest_framework.generics import get_object_or_404
+from rest_framework.pagination import PageNumberPagination
 
 from account.models import Member, Affiliation, Booking, BookingType
 from utils import constants as const
@@ -15,6 +16,11 @@ from utils.constants import BOOKED, MEANING_COEFFICIENTS, PATH_TO_RATING_LIST, \
     PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT, TRUE_VALUES, FALSE_VALUES
 from utils.constants import NAME_ADDITIONAL_FIELD_TEMPLATE
 from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat, Competence, ViewedApplication
+
+
+class PaginationApplication(PageNumberPagination):
+    """Пагинация для списка анкет."""
+    page_size = 50
 
 
 def has_affiliation(member, affiliation):

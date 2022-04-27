@@ -74,7 +74,7 @@ class ApplicationsTest(APITestCase):
         self.client.force_login(user=self.master_user)
         response = self.client.get(reverse('application-list'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 6)
+        self.assertEqual(len(response.data.get('results')), 6)
 
     def test_application_list_by_unauthorized_user(self):
         """Получение списка заявок неавторизованным пользователем"""

@@ -31,11 +31,11 @@ from application.serializers import ChooseDirectionSerializer, \
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
-    add_direction_to_competence_list, has_application_viewed
+    add_direction_to_competence_list, has_application_viewed, PaginationApplication
 from utils import constants as const
 
 """
-todo: не реализован функционал: рабочий список, пагинации, фильтры, поиски, дополнительные поля заявки(возможно)
+todo: не реализован функционал: рабочий список, фильтры, поиски, дополнительные поля заявки(возможно)
 """
 
 
@@ -58,6 +58,7 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     """
     # todo: добавить доп. поля в анкету (в том числе, была ли заявка просмотрена), фильтрацию, пагинацию
     queryset = Application.objects.all()
+    pagination_class = PaginationApplication
     master_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
         'set_chosen_direction_list': ChooseDirectionSerializer,
