@@ -8,7 +8,7 @@ from .views import DirectionsViewSet, ApplicationViewSet, EducationViewSet, Comp
 
 router = DefaultRouter()
 router.register(r'directions', DirectionsViewSet)
-router.register(r'applications', ApplicationViewSet)
+router.register(r'applications', ApplicationViewSet, basename='applications')
 router.register(r'competences', CompetenceViewSet)
 router.register(r'files', FileViewSet, basename='files')
 router.register(r'work-groups', WorkGroupViewSet, basename='work-groups')

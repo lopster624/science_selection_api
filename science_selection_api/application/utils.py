@@ -4,8 +4,11 @@ from io import BytesIO
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django_filters import NumberFilter, BaseInFilter, CharFilter, AllValuesMultipleFilter
+from django_filters.rest_framework import FilterSet
 from docxtpl import DocxTemplate
 from rest_framework.exceptions import ValidationError, ParseError
+from rest_framework.filters import OrderingFilter
 from rest_framework.generics import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
 
@@ -328,3 +331,62 @@ def has_application_viewed(application, member):
     :return: True/False
     """
     return ViewedApplication.objects.filter(member=member, application=application).exists()
+
+
+class NumberInFilter(BaseInFilter, NumberFilter):
+    pass
+
+
+class ApplicationFilter(FilterSet):
+    draft_year = AllValuesMultipleFilter(field_name='draft_year')
+    directions = NumberInFilter(field_name='directions__id', lookup_expr='in')
+    draft_season = NumberInFilter(field_name='draft_season', lookup_expr='in')
+    booking_aff = NumberInFilter(label='Отобрано во взвод',
+                                 method='filter_booking_aff')  # id affiliation, на которые отобраны заявки
+    wishlist_aff = NumberInFilter(label='Избранное во взвод',
+                                  method='filter_wishlist_aff')  # id affiliation, для которых заявки добавлены в вишлист
+
+    def filter_booking_aff(self, queryset, name, value):
+        """
+        Фильтрует queryset.
+
+        Оставялет только те заявки, которые были отобраны на принадлежности, переданные в value.
+        :param queryset: исходный queryset
+        :param name: имя query-параметра
+        :param value: список affiliations id
+        :return: отфильтрованный queryset
+        """
+        booked_members = Booking.objects.filter(affiliation__in=value, booking_type__name=const.BOOKED) \
+            .values_list('slave', flat=True)
+        return queryset.filter(member_id__in=booked_members).distinct()
+
+    def filter_wishlist_aff(self, queryset, name, value):
+        """
+        Фильтрует queryset.
+
+        Оставялет только те заявки, которые были добавленны в избранное на принадлежности, переданные в value.
+        :param queryset: исходный queryset
+        :param name: имя query-параметра
+        :param value: список affiliations id
+        :return: отфильтрованный queryset
+        """
+        wish_list_members = Booking.objects.filter(affiliation__in=value, booking_type__name=const.IN_WISHLIST) \
+            .values_list('slave', flat=True)
+        return queryset.filter(member__id__in=wish_list_members).distinct()
+
+    class Meta:
+        model = Application
+        fields = ('directions', 'booking_aff', 'wishlist_aff', 'draft_season', 'draft_year')
+
+
+class CustomOrderingFilter(OrderingFilter):
+    def filter_queryset(self, request, queryset, view):
+        # Сортирует queryset.
+        # Default ordering применяется всегда. Остальные сортировки происходят после default.
+        ordering = super().get_default_ordering(view)
+        ordering.extend(self.get_ordering(request, queryset, view))
+
+        if ordering:
+            return queryset.order_by(*ordering)
+
+        return queryset

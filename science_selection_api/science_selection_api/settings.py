@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'account.apps.AccountConfig',
     'debug_toolbar',
     'django_cleanup.apps.CleanupConfig',
+    'django_filters',
 
 ]
 
@@ -137,7 +138,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.AllowAny',),
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'EXCEPTION_HANDLER': 'utils.exceptions.custom_exception_handler',
-
+    'DATETIME_FORMAT': '%d.%m.%Y %H:%M:%S',
 }
 
 # Default primary key field type

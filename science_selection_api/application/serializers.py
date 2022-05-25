@@ -22,7 +22,7 @@ class EducationListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Education
-        fields = ('education_type', 'university',)
+        fields = ('education_type', 'university', 'specialization')
 
 
 class EducationDetailSerializer(serializers.ModelSerializer):
@@ -36,20 +36,22 @@ class EducationDetailSerializer(serializers.ModelSerializer):
 
 class MemberListSerialiser(serializers.ModelSerializer):
     """Список участников"""
-    user = UserListSerializer()
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    second_name = serializers.CharField(source='user.last_name', read_only=True)
 
     class Meta:
         model = Member
-        fields = ('user', 'father_name',)
+        fields = ('first_name', 'second_name', 'father_name',)
 
 
 class MemberDetailSerialiser(serializers.ModelSerializer):
     """Участник"""
-    user = UserListSerializer()
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    second_name = serializers.CharField(source='user.last_name', read_only=True)
 
     class Meta:
         model = Member
-        fields = ('user', 'father_name', 'phone')
+        fields = ('first_name', 'second_name', 'father_name', 'phone')
 
 
 class DirectionDetailSerializer(serializers.ModelSerializer):
@@ -66,6 +68,96 @@ class DirectionListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Direction
         fields = ('id', 'name')
+
+
+class AffiliationSerializer(serializers.ModelSerializer):
+    """Принадлежность"""
+
+    class Meta:
+        model = Affiliation
+        exclude = ('direction',)
+
+
+class AffiliationDetailSerializer(serializers.ModelSerializer):
+    """Принадлежность"""
+    direction = DirectionListSerializer()
+
+    class Meta:
+        model = Affiliation
+        fields = '__all__'
+
+
+class BookingDetailSerializer(serializers.ModelSerializer):
+    """Бронирования и добавления в вишлист"""
+    master = MemberDetailSerialiser()
+    affiliation = AffiliationSerializer()
+
+    class Meta:
+        model = Booking
+        exclude = ('slave', 'booking_type')
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    """Бронирования и добавления в вишлист"""
+    master = MemberListSerialiser()
+    affiliation = AffiliationSerializer()
+
+    class Meta:
+        model = Booking
+        exclude = ('slave', 'booking_type',)
+
+
+class ApplicationNoteSerializer(serializers.ModelSerializer):
+    """Заметка о заявке"""
+    author = MemberListSerialiser(read_only=True)
+
+    class Meta:
+        model = ApplicationNote
+        exclude = ('application',)
+
+    def save(self, **kwargs):
+        """ Проверяет, что автор выбрал только свои принадлежности и сохраняет """
+        master_affiliations = get_master_affiliations_id(kwargs.get('author'))
+        affiliations = self.validated_data.get('affiliations', None)
+        if not affiliations:
+            raise serializers.ValidationError(f'Не выбран взвод, для которого будет видна заметка!')
+        for affiliation in affiliations:
+            if affiliation.id not in master_affiliations:
+                raise serializers.ValidationError(f'{affiliation} не является вашим!')
+        super().save(**kwargs)
+
+
+class ApplicationMasterListSerializer(serializers.ModelSerializer):
+    """Список заявок для мастера"""
+    member = MemberListSerialiser(read_only=True)
+    education = EducationListSerializer(many=True)
+    draft_season = serializers.CharField(source='get_draft_season_display')
+    directions = DirectionListSerializer(many=True)
+
+    # Аннотируемые поля
+    is_booked = serializers.BooleanField(read_only=True)  # анкета отобрана
+    booking = BookingSerializer(many=True, read_only=True,
+                                source='member.booking_affiliation')  # экземпляр бронирования
+    is_booked_our = serializers.BooleanField(read_only=True)  # отобрана на направление текущего мастера
+    can_unbook = serializers.BooleanField(read_only=True)  # мастер может отменить отбор
+    wishlist_len = serializers.IntegerField(read_only=True)  # количество добавлений в избранное
+    is_in_wishlist = serializers.BooleanField(read_only=True)  # добавлена в вишлист мастера
+    our_direction = serializers.BooleanField(read_only=True)  # подана на направление мастера
+    subject = serializers.CharField(read_only=True)  # субъект РФ проживания
+    available_booking_direction = DirectionListSerializer(read_only=True,
+                                                          many=True)  # направлении, доступные для бронирования
+
+    wishlist = BookingSerializer(many=True, read_only=True, source='member.candidate')  # в избранном
+    notes = ApplicationNoteSerializer(many=True, read_only=True)  # заметки
+    is_viewed = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Application
+        fields = (
+            'id', 'directions', 'draft_season', 'birth_day', 'birth_place', 'draft_year', 'fullness', 'final_score',
+            'member', 'education', 'is_booked', 'is_booked_our', 'can_unbook', 'wishlist_len', 'is_in_wishlist',
+            'our_direction', 'subject', 'available_booking_direction', 'booking', 'wishlist', 'notes', 'is_viewed'
+        )
 
 
 class ApplicationListSerializer(serializers.ModelSerializer):
@@ -265,15 +357,6 @@ class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
         return app_competence
 
 
-class AffiliationSerializer(serializers.ModelSerializer):
-    """Принадлежность"""
-    direction = DirectionListSerializer()
-
-    class Meta:
-        model = Affiliation
-        fields = '__all__'
-
-
 class BookingCreateSerializer(serializers.ModelSerializer):
     """Создание бронирования и добавления в вишлист"""
 
@@ -313,16 +396,6 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         super().save(**kwargs)
 
 
-class BookingSerializer(serializers.ModelSerializer):
-    """Бронирования и добавления в вишлист"""
-    master = MemberDetailSerialiser()
-    affiliation = AffiliationSerializer()
-
-    class Meta:
-        model = Booking
-        exclude = ('booking_type', 'slave')
-
-
 class WorkGroupSerializer(serializers.ModelSerializer):
     """Рабочая группа"""
 
@@ -348,26 +421,6 @@ class WorkGroupDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkGroup
         fields = '__all__'
-
-
-class ApplicationNoteSerializer(serializers.ModelSerializer):
-    """Заметка о заявке"""
-    author = MemberListSerialiser(read_only=True)
-
-    class Meta:
-        model = ApplicationNote
-        exclude = ('application',)
-
-    def save(self, **kwargs):
-        """ Проверяет, что автор выбрал только свои принадлежности и сохраняет """
-        master_affiliations = get_master_affiliations_id(kwargs.get('author'))
-        affiliations = self.validated_data.get('affiliations', None)
-        if not affiliations:
-            raise serializers.ValidationError(f'Не выбран взвод, для которого будет видна заметка!')
-        for affiliation in affiliations:
-            if affiliation.id not in master_affiliations:
-                raise serializers.ValidationError(f'{affiliation} не является вашим!')
-        super().save(**kwargs)
 
 
 class ViewedApplicationSerializer(serializers.ModelSerializer):

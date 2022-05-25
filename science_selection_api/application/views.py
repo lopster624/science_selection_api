@@ -1,11 +1,13 @@
 import os
 
-from django.db.models import Q
+from django.db.models import Q, When, Value, OuterRef, Case, Subquery, Count, F, Prefetch
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status, serializers, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -15,7 +17,7 @@ from rest_framework.viewsets import GenericViewSet
 from account.models import Booking
 from application.mixins import PermissionPolicyMixin, DataApplicationMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup, \
-    ApplicationNote, File
+    ApplicationNote, File, MilitaryCommissariat
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
     IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission, \
@@ -27,15 +29,16 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
     WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer, ViewedApplicationSerializer, \
-    FileSerializer
+    FileSerializer, ApplicationMasterListSerializer, BookingDetailSerializer
 from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
-    add_direction_to_competence_list, has_application_viewed, PaginationApplication
+    add_direction_to_competence_list, has_application_viewed, PaginationApplication, ApplicationFilter, \
+    CustomOrderingFilter
 from utils import constants as const
 
 """
-todo: не реализован функционал: рабочий список, фильтры, поиски, дополнительные поля заявки(возможно)
+todo: не реализован функционал: рабочий список, дополнительные поля заявки(возможно)
 """
 
 
@@ -51,21 +54,26 @@ class DirectionsViewSet(viewsets.ReadOnlyModelViewSet):
         return self.serializers.get(self.action, self.default_serializer_class)
 
 
-class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
+class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.ModelViewSet):
     """
     Главный список заявок
     Также дополнительные вложенные эндпоинты для получения и сохранения компетенций, направлений, рабочих групп.
     """
-    # todo: добавить доп. поля в анкету (в том числе, была ли заявка просмотрена), фильтрацию, пагинацию
-    queryset = Application.objects.all()
     pagination_class = PaginationApplication
+    filter_backends = [DjangoFilterBackend, CustomOrderingFilter, SearchFilter]
+    filterset_class = ApplicationFilter
+    ordering_fields = ['member__user__last_name', 'birth_place', 'subject', 'final_score', 'fullness']
+    ordering = ['-our_direction']
+    search_fields = ['member__user__first_name', 'member__user__last_name', 'member__father_name',
+                     'education__university', 'subject', 'education__specialization']
+
     master_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
         'set_chosen_direction_list': ChooseDirectionSerializer,
         'get_work_group': ApplicationWorkGroupSerializer,
         'set_work_group': ApplicationWorkGroupSerializer,
         'set_is_final': ApplicationIsFinalSerializer,
-        'list': ApplicationListSerializer,
+        'list': ApplicationMasterListSerializer,
         'get_competences_list': ApplicationCompetenciesSerializer,
         'view_application': ViewedApplicationSerializer,
     }
@@ -95,6 +103,117 @@ class ApplicationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         'set_competences_list': [IsApplicationOwnerPermission, ApplicationIsNotFinalPermission],
         'view_application': [IsMasterPermission, ],
     }
+
+
+    def get_queryset(self):
+        apps = (
+            Application.objects.all()
+                .select_related("member", "member__user")
+                .prefetch_related(
+                "education",
+                "directions",
+                Prefetch(
+                    "notes",
+                    queryset=ApplicationNote.objects.filter(
+                        author=self.request.user.member,
+                        affiliations__in=self.get_master_affiliations(),
+                    )
+                        .select_related("author__user")
+                        .prefetch_related("affiliations"),
+                ),
+                Prefetch(
+                    "member__candidate",
+                    queryset=Booking.objects.filter(
+                        affiliation__in=self.get_master_affiliations(),
+                        booking_type__name=const.IN_WISHLIST,
+                    ).select_related("affiliation", "master__user"),
+                ),
+                Prefetch(
+                    "member__candidate",
+                    queryset=Booking.objects.filter(
+                        booking_type__name=const.BOOKED
+                    ).select_related("affiliation", "master__user"),
+                    to_attr="booking_affiliation",
+                ),
+                Prefetch(
+                    "directions",
+                    queryset=self.get_master_directions(),
+                    to_attr="available_booking_direction",
+                ),
+            )
+                .only(
+                "id",
+                "member",
+                "directions",
+                "birth_day",
+                "birth_place",
+                "draft_year",
+                "draft_season",
+                "final_score",
+                "fullness",
+                "member__user__id",
+                "member__user__first_name",
+                "member__user__last_name",
+                "member__father_name",
+            )
+                .annotate(
+                is_booked=Count(
+                    F("member__candidate"),
+                    filter=Q(member__candidate__booking_type__name=const.BOOKED),
+                    distinct=True,
+                ),
+                is_booked_our=Count(
+                    F("member__candidate"),
+                    filter=Q(
+                        member__candidate__booking_type__name=const.BOOKED,
+                        member__candidate__affiliation__in=self.get_master_affiliations(),
+                    ),
+                    distinct=True,
+                ),
+                can_unbook=Count(
+                    F("member__candidate"),
+                    filter=Q(
+                        member__candidate__booking_type__name=const.BOOKED,
+                        member__candidate__affiliation__in=self.get_master_affiliations(),
+                        member__candidate__master=self.request.user.member,
+                    ),
+                    distinct=True,
+                ),
+                wishlist_len=Count(
+                    F("member__candidate"),
+                    filter=Q(member__candidate__booking_type__name=const.IN_WISHLIST),
+                    distinct=True,
+                ),
+                is_in_wishlist=Count(
+                    F("member__candidate"),
+                    filter=Q(
+                        member__candidate__booking_type__name=const.IN_WISHLIST,
+                        member__candidate__affiliation__in=self.get_master_affiliations(),
+                    ),
+                    distinct=True,
+                ),
+                our_direction_count=Count(
+                    F('directions'),
+                    filter=Q(directions__id__in=self.get_master_directions_id()),
+                    distinct=True
+                ),
+                our_direction=Case(
+                    When(our_direction_count__gt=0, then=Value(True)),
+                    default=Value(False),
+                ),
+                subject=(
+                    MilitaryCommissariat.objects.filter(
+                        name=OuterRef("military_commissariat")
+                    ).values_list("subject")[:1]
+                ),
+                is_viewed=Count(
+                    F("viewed"),
+                    filter=Q(viewed__member=self.request.user.member),
+                    distinct=True,
+                ),
+            )
+        )
+        return apps
 
     def get_serializer_class(self):
         if check_role(self.request.user, const.SLAVE_ROLE_NAME):
@@ -278,7 +397,7 @@ class BookingViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         'delete': BookingCreateSerializer,
         'create': BookingCreateSerializer,
     }
-    default_master_serializer_class = BookingSerializer
+    default_master_serializer_class = BookingDetailSerializer
     permission_classes_per_method = {
         'list': [IsMasterPermission | IsNestedApplicationOwnerPermission],
         'retrieve': [IsMasterPermission | IsNestedApplicationOwnerPermission],
