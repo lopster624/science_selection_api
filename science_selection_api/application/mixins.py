@@ -1,11 +1,8 @@
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 
 from account.models import Affiliation
 from application.models import Competence, Direction
-from application.utils import check_role
-from utils.constants import MASTER_ROLE_NAME
 from utils.exceptions import MasterHasNoDirectionsException, NoHTTPReferer
 
 

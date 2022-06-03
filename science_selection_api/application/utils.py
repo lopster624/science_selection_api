@@ -4,9 +4,12 @@ from io import BytesIO
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Prefetch, Count, Q, F, Case, When, Value, OuterRef
 from django_filters import NumberFilter, BaseInFilter, CharFilter, AllValuesMultipleFilter
 from django_filters.rest_framework import FilterSet
 from docxtpl import DocxTemplate
+from openpyxl import load_workbook, Workbook
+from openpyxl.utils.cell import get_column_letter
 from rest_framework.exceptions import ValidationError, ParseError
 from rest_framework.filters import OrderingFilter
 from rest_framework.generics import get_object_or_404
@@ -16,9 +19,10 @@ from account.models import Member, Affiliation, Booking, BookingType
 from utils import constants as const
 from utils.calculations import get_current_draft_year, convert_float
 from utils.constants import BOOKED, MEANING_COEFFICIENTS, PATH_TO_RATING_LIST, \
-    PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT, TRUE_VALUES, FALSE_VALUES
+    PATH_TO_CANDIDATES_LIST, PATH_TO_EVALUATION_STATEMENT, TRUE_VALUES, FALSE_VALUES, MASTER_ROLE_NAME
 from utils.constants import NAME_ADDITIONAL_FIELD_TEMPLATE
-from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat, Competence, ViewedApplication
+from .models import Application, AdditionField, AdditionFieldApp, MilitaryCommissariat, Competence, ViewedApplication, \
+    Education, ApplicationNote
 
 
 class PaginationApplication(PageNumberPagination):
@@ -74,14 +78,27 @@ def get_in_wishlist_type():
     return BookingType.objects.get(name=const.IN_WISHLIST)
 
 
-def check_role(user, role_name):
-    """ Проверяет, совпадает ли роль пользователя с заданной через параметр role_name """
+def is_master(user):
+    """
+    Проверяет, является ли пользователь отбирающим.
+    :param user: объект user
+    :return: bool
+    """
     try:
-        member = Member.objects.select_related('role').get(user=user)
-        if member.role.role_name == role_name:
-            return True
+        return user.member.is_master()
+    except AttributeError:
         return False
-    except Exception:
+
+
+def is_slave(user):
+    """
+    Проверяет, является ли пользователь кандидатом.
+    :param user: объект user
+    :return: bool
+    """
+    try:
+        return user.member.is_slave()
+    except AttributeError:
         return False
 
 
@@ -118,7 +135,7 @@ def add_additional_fields(request, user_app):
 
 
 class WordTemplate:
-    """ Класс для создания шаблона ворд документа по файлу, который через путь - path_to_template """
+    """ Класс для создания шаблона ворд документа по файлу, через путь path_to_template """
 
     def __init__(self, request, path_to_template):
         self.request = request
@@ -338,6 +355,7 @@ class NumberInFilter(BaseInFilter, NumberFilter):
 
 
 class ApplicationFilter(FilterSet):
+    """Фильтр анкет."""
     draft_year = AllValuesMultipleFilter(field_name='draft_year')
     directions = NumberInFilter(field_name='directions__id', lookup_expr='in')
     draft_season = NumberInFilter(field_name='draft_season', lookup_expr='in')
@@ -380,9 +398,14 @@ class ApplicationFilter(FilterSet):
 
 
 class CustomOrderingFilter(OrderingFilter):
+    """Фильтр со стандартной сортировкой анкет"""
+
     def filter_queryset(self, request, queryset, view):
         # Сортирует queryset.
         # Default ordering применяется всегда. Остальные сортировки происходят после default.
+        # Сортирует только если пользователь является отбирающим.
+        if not is_master(request.user):
+            return queryset
         ordering = super().get_default_ordering(view)
         ordering.extend(self.get_ordering(request, queryset, view))
 
@@ -390,3 +413,228 @@ class CustomOrderingFilter(OrderingFilter):
             return queryset.order_by(*ordering)
 
         return queryset
+
+
+class ApplicationExporter:
+    """Экспорт списка заявок в exel"""
+
+    def __init__(self, applications):
+        """
+        Устанавливает список анкет, создает и устанавливает книгу и лист.
+        :param applications: queryset заявок
+        """
+        self.applications = applications
+        self.wb = Workbook(write_only=True)
+        self.sheet = self.wb.create_sheet()
+
+    def add_applications_to_sheet(self):
+        """Добавляет заявки в файл и сохраняет его."""
+        header = const.HEADERS_FOR_EXCEL_APP_TABLES
+        self._set_column_dimensions(header)
+        self.sheet.append(header)
+        for app in self.applications:
+            row = self._convert_applications_to_required_format(app)
+            self.sheet.append(row)
+        return self._save()
+
+    def add_work_list_to_sheet(self):
+        """Добавляет заявки забочего листа в файл и сохраняет."""
+        header = const.WORK_LIST_HEADERS_FOR_EXCEL
+        self._set_column_dimensions(header)
+        self.sheet.append(header)
+        for app in self.applications:
+            row = self._convert_work_list_to_required_format(app)
+            self.sheet.append(row)
+        return self._save()
+
+    def _convert_applications_to_required_format(self, app):
+        """Конвертирует заявки в нужный формат."""
+        birth_day = datetime.datetime.strftime(app.birth_day, '%d.%m.%Y')
+        draft_season = app.get_draft_time()
+        full_name = self._get_full_name(app)
+        university, education_type, specialization, avg_score = self._get_education_info(app)
+        return [full_name, draft_season, birth_day, app.birth_place, app.subject,
+                university, education_type, specialization, avg_score]
+
+    def _get_education_info(self, application):
+        """Возвращает информацию об образовании кандидата, если оно существует."""
+        education = application.education.first()
+        return (education.university, education.get_education_type_display(), education.specialization,
+                education.avg_score) if education else ('', '', '', '')
+
+    def _convert_work_list_to_required_format(self, app):
+        """Конвертирует заявки рабочего листа в нужный формат."""
+        full_name = self._get_full_name(app)
+        user_competencies = self._get_user_competencies(app)
+        return [full_name, app.member.phone, app.member.user.email, app.final_score, app.university, app.specialization,
+                ', '.join(user_competencies[3]), ', '.join(user_competencies[2]), ', '.join(user_competencies[1])]
+
+    def _get_user_competencies(self, app):
+        """Преобразовывает компетенции заявок в нужный формат и возвращает их."""
+        competence_levels = {
+            3: [],
+            2: [],
+            1: [],
+        }
+        for comp in app.app_competence.all():
+            competence_levels[comp.level].append(comp.competence.name)
+        return competence_levels
+
+    def _get_full_name(self, app):
+        """Возвращает полное имя кандидата в заявке."""
+        return f"{app.member.user.last_name} {app.member.user.first_name} {app.member.father_name}"
+
+    def _save(self):
+        """Сохраняет файл."""
+        buffer = BytesIO()
+        self.wb.save(buffer)
+        buffer.seek(0)
+        return buffer
+
+    def _set_column_dimensions(self, columns):
+        """Устанавливает ширину колонок."""
+        for i in range(1, len(columns) + 1):
+            letter = get_column_letter(i)
+            self.sheet.column_dimensions[letter].width = 30
+
+
+def get_applications_by_master(user, master_affiliations, master_directions, master_directions_id):
+    """
+    Возвращает queryset заявок с аннотированными полями.
+
+    Переданный user должен иметь роль master.
+    :param user: экземляр user(мастер)
+    :param master_affiliations: список принадлежностей мастера
+    :param master_directions: список направлений мастера
+    :param master_directions_id: список id направлений мастера
+    :return: queryset(Application)
+    """
+    apps = (
+        Application.objects.all()
+            .select_related("member", "member__user")
+            .prefetch_related(
+            "education",
+            "directions",
+            Prefetch(
+                "notes",
+                queryset=ApplicationNote.objects.filter(
+                    author=user.member,
+                    affiliations__in=master_affiliations,
+                )
+                    .select_related("author__user")
+                    .prefetch_related("affiliations"),
+            ),
+            Prefetch(
+                "member__candidate",
+                queryset=Booking.objects.filter(
+                    affiliation__in=master_affiliations,
+                    booking_type__name=const.IN_WISHLIST,
+                ).select_related("affiliation", "master__user"),
+            ),
+            Prefetch(
+                "member__candidate",
+                queryset=Booking.objects.filter(
+                    booking_type__name=const.BOOKED
+                ).select_related("affiliation", "master__user"),
+                to_attr="booking_affiliation",
+            ),
+            Prefetch(
+                "directions",
+                queryset=master_directions,
+                to_attr="available_booking_direction",
+            ),
+        )
+            .annotate(
+            is_booked=Count(
+                F("member__candidate"),
+                filter=Q(member__candidate__booking_type__name=const.BOOKED),
+                distinct=True,
+            ),
+            is_booked_our=Count(
+                F("member__candidate"),
+                filter=Q(
+                    member__candidate__booking_type__name=const.BOOKED,
+                    member__candidate__affiliation__in=master_affiliations,
+                ),
+                distinct=True,
+            ),
+            can_unbook=Count(
+                F("member__candidate"),
+                filter=Q(
+                    member__candidate__booking_type__name=const.BOOKED,
+                    member__candidate__affiliation__in=master_affiliations,
+                    member__candidate__master=user.member,
+                ),
+                distinct=True,
+            ),
+            wishlist_len=Count(
+                F("member__candidate"),
+                filter=Q(member__candidate__booking_type__name=const.IN_WISHLIST),
+                distinct=True,
+            ),
+            is_in_wishlist=Count(
+                F("member__candidate"),
+                filter=Q(
+                    member__candidate__booking_type__name=const.IN_WISHLIST,
+                    member__candidate__affiliation__in=master_affiliations,
+                ),
+                distinct=True,
+            ),
+            our_direction_count=Count(
+                F('directions'),
+                filter=Q(directions__id__in=master_directions_id),
+                distinct=True
+            ),
+            our_direction=Case(
+                When(our_direction_count__gt=0, then=Value(True)),
+                default=Value(False),
+            ),
+            subject=(
+                MilitaryCommissariat.objects.filter(
+                    name=OuterRef("military_commissariat")
+                ).values_list("subject")[:1]
+            ),
+            is_viewed=Count(
+                F("viewed"),
+                filter=Q(viewed__member=user.member),
+                distinct=True,
+            ),
+        )
+    )
+    return apps
+
+
+def get_applications_by_slave():
+    """
+    Возвращает queryset заявок с аннотированными полями.
+
+    :return: queryset(Application)
+    """
+    apps = (
+        Application.objects.all()
+            .select_related("member", "member__user")
+            .prefetch_related(
+            "education",
+            "directions",
+            Prefetch(
+                "member__candidate",
+                queryset=Booking.objects.filter(
+                    booking_type__name=const.BOOKED
+                ).select_related("affiliation", "master__user"),
+                to_attr="booking_affiliation",
+            ),
+        )
+            .annotate(
+            is_booked=Count(
+                F("member__candidate"),
+                filter=Q(member__candidate__booking_type__name=const.BOOKED),
+                distinct=True,
+            ),
+            subject=(
+                MilitaryCommissariat.objects.filter(
+                    name=OuterRef("military_commissariat")
+                ).values_list("subject")[:1]
+            ),
+        )
+    )
+    return apps

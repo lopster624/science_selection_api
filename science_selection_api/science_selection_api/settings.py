@@ -135,7 +135,7 @@ STATICFILES_DIRS = (
 )
 
 REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.AllowAny',),
+    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'EXCEPTION_HANDLER': 'utils.exceptions.custom_exception_handler',
     'DATETIME_FORMAT': '%d.%m.%Y %H:%M:%S',

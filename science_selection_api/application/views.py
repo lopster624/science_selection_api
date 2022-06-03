@@ -1,13 +1,13 @@
 import os
 
-from django.db.models import Q, When, Value, OuterRef, Case, Subquery, Count, F, Prefetch
+from django.db.models import Q
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status, serializers, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
-from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.filters import SearchFilter
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -17,7 +17,7 @@ from rest_framework.viewsets import GenericViewSet
 from account.models import Booking
 from application.mixins import PermissionPolicyMixin, DataApplicationMixin
 from application.models import Application, Direction, Education, ApplicationCompetencies, Competence, WorkGroup, \
-    ApplicationNote, File, MilitaryCommissariat
+    ApplicationNote, File
 from application.permissions import IsMasterPermission, IsApplicationOwnerPermission, IsSlavePermission, \
     ApplicationIsNotFinalPermission, IsBookedOnMasterDirectionPermission, IsNestedApplicationOwnerPermission, \
     IsNotFinalNestedApplicationPermission, IsNestedApplicationBookedOnMasterDirectionPermission, \
@@ -30,11 +30,12 @@ from application.serializers import ChooseDirectionSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
     WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer, ViewedApplicationSerializer, \
     FileSerializer, ApplicationMasterListSerializer, BookingDetailSerializer
-from application.utils import check_role, get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
+from application.utils import get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
     add_direction_to_competence_list, has_application_viewed, PaginationApplication, ApplicationFilter, \
-    CustomOrderingFilter
+    CustomOrderingFilter, ApplicationExporter, get_applications_by_master, get_applications_by_slave, is_master, \
+    is_slave
 from utils import constants as const
 
 """
@@ -76,6 +77,7 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
         'list': ApplicationMasterListSerializer,
         'get_competences_list': ApplicationCompetenciesSerializer,
         'view_application': ViewedApplicationSerializer,
+        'export_applications_list': ApplicationMasterListSerializer
     }
     default_master_serializer_class = ApplicationMasterDetailSerializer
     slave_serializers = {
@@ -102,125 +104,27 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
         'get_competences_list': [IsMasterPermission | IsApplicationOwnerPermission],
         'set_competences_list': [IsApplicationOwnerPermission, ApplicationIsNotFinalPermission],
         'view_application': [IsMasterPermission, ],
+        'export_applications_list': [IsMasterPermission, ],
     }
 
-
     def get_queryset(self):
-        apps = (
-            Application.objects.all()
-                .select_related("member", "member__user")
-                .prefetch_related(
-                "education",
-                "directions",
-                Prefetch(
-                    "notes",
-                    queryset=ApplicationNote.objects.filter(
-                        author=self.request.user.member,
-                        affiliations__in=self.get_master_affiliations(),
-                    )
-                        .select_related("author__user")
-                        .prefetch_related("affiliations"),
-                ),
-                Prefetch(
-                    "member__candidate",
-                    queryset=Booking.objects.filter(
-                        affiliation__in=self.get_master_affiliations(),
-                        booking_type__name=const.IN_WISHLIST,
-                    ).select_related("affiliation", "master__user"),
-                ),
-                Prefetch(
-                    "member__candidate",
-                    queryset=Booking.objects.filter(
-                        booking_type__name=const.BOOKED
-                    ).select_related("affiliation", "master__user"),
-                    to_attr="booking_affiliation",
-                ),
-                Prefetch(
-                    "directions",
-                    queryset=self.get_master_directions(),
-                    to_attr="available_booking_direction",
-                ),
-            )
-                .only(
-                "id",
-                "member",
-                "directions",
-                "birth_day",
-                "birth_place",
-                "draft_year",
-                "draft_season",
-                "final_score",
-                "fullness",
-                "member__user__id",
-                "member__user__first_name",
-                "member__user__last_name",
-                "member__father_name",
-            )
-                .annotate(
-                is_booked=Count(
-                    F("member__candidate"),
-                    filter=Q(member__candidate__booking_type__name=const.BOOKED),
-                    distinct=True,
-                ),
-                is_booked_our=Count(
-                    F("member__candidate"),
-                    filter=Q(
-                        member__candidate__booking_type__name=const.BOOKED,
-                        member__candidate__affiliation__in=self.get_master_affiliations(),
-                    ),
-                    distinct=True,
-                ),
-                can_unbook=Count(
-                    F("member__candidate"),
-                    filter=Q(
-                        member__candidate__booking_type__name=const.BOOKED,
-                        member__candidate__affiliation__in=self.get_master_affiliations(),
-                        member__candidate__master=self.request.user.member,
-                    ),
-                    distinct=True,
-                ),
-                wishlist_len=Count(
-                    F("member__candidate"),
-                    filter=Q(member__candidate__booking_type__name=const.IN_WISHLIST),
-                    distinct=True,
-                ),
-                is_in_wishlist=Count(
-                    F("member__candidate"),
-                    filter=Q(
-                        member__candidate__booking_type__name=const.IN_WISHLIST,
-                        member__candidate__affiliation__in=self.get_master_affiliations(),
-                    ),
-                    distinct=True,
-                ),
-                our_direction_count=Count(
-                    F('directions'),
-                    filter=Q(directions__id__in=self.get_master_directions_id()),
-                    distinct=True
-                ),
-                our_direction=Case(
-                    When(our_direction_count__gt=0, then=Value(True)),
-                    default=Value(False),
-                ),
-                subject=(
-                    MilitaryCommissariat.objects.filter(
-                        name=OuterRef("military_commissariat")
-                    ).values_list("subject")[:1]
-                ),
-                is_viewed=Count(
-                    F("viewed"),
-                    filter=Q(viewed__member=self.request.user.member),
-                    distinct=True,
-                ),
-            )
-        )
+        # создать несколько методов получения разных queryset для разных ролей
+        if is_master(self.request.user):
+            apps = get_applications_by_master(self.request.user, self.get_master_affiliations(),
+                                              self.get_master_directions(), self.get_master_directions_id())
+        elif is_slave(self.request.user) or self.request.user.is_superuser:
+            apps = get_applications_by_slave()
+        else:
+            apps = Application.objects.all()
         return apps
 
+    # todo: проверить, как расширенный аннотированный queryset работает с другими методами
     def get_serializer_class(self):
-        if check_role(self.request.user, const.SLAVE_ROLE_NAME):
+        if is_slave(self.request.user):
             return self.slave_serializers.get(self.action, self.default_slave_serializer_class)
-        elif self.request.user.is_superuser or check_role(self.request.user, const.MASTER_ROLE_NAME):
+        elif self.request.user.is_superuser or is_master(self.request.user):
             return self.master_serializers.get(self.action, self.default_master_serializer_class)
-        return self.default_slave_serializer_class  # раньше вызывал ошибку
+        return self.default_slave_serializer_class
 
     def perform_create(self, serializer):
         application = serializer.save(member=self.request.user.member)
@@ -229,6 +133,18 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
     def perform_update(self, serializer):
         serializer.save()
         update_user_application_scores(pk=self.kwargs['pk'])
+
+        # todo: написать тесты к этому методу
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_applications_list(self, request):
+        """Сохраняет список заявок в exel файл и возвращает его."""
+        queryset = self.get_queryset()
+        excel_from_apps = ApplicationExporter(queryset)
+        excel_file = excel_from_apps.add_applications_to_sheet()
+        response = FileResponse(excel_file, content_type='application/xlsx')
+        response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path('Список заявок.xlsx') + '"'
+        return response
 
     @action(detail=True, methods=['get'], url_path='directions')
     def get_chosen_direction_list(self, request, pk=None):

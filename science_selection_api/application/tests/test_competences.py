@@ -77,7 +77,7 @@ class CompetenceTest(APITestCase):
     def test_list_competence_by_unauthorized_user(self):
         """Просмотр списка компетенций неавторизованным пользователем"""
         response = self.client.get(reverse('competence-list'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_list_competence_by_slave(self):
         """Просмотр списка компетенций неавторизованным пользователем"""
@@ -86,7 +86,7 @@ class CompetenceTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_list_competence_by_master(self):
-        """Просмотр списка компетенций неавторизованным пользователем"""
+        """Просмотр списка компетенций мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.get(reverse('competence-list'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -94,16 +94,16 @@ class CompetenceTest(APITestCase):
     def test_retrieve_competence_by_unauthorized_user(self):
         """Просмотр списка компетенций неавторизованным пользователем"""
         response = self.client.get(reverse('competence-detail', args=(self.competence.id,)))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_retrieve_competence_by_slave(self):
-        """Просмотр списка компетенций неавторизованным пользователем"""
+        """Просмотр компетенции кандидатом"""
         self.client.force_login(user=self.slave_application_main.member.user)
         response = self.client.get(reverse('competence-detail', args=(self.competence.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_retrieve_competence_by_master(self):
-        """Просмотр списка компетенций неавторизованным пользователем"""
+        """Просмотр компетенции мастером"""
         self.client.force_login(user=self.master_user)
         response = self.client.get(reverse('competence-detail', args=(self.competence.id,)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)

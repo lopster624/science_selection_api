@@ -185,7 +185,7 @@ class ApplicationsTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_final_application_by_unauthorized_user(self):
-        """ Редактирование заблокированной заявки мастером с направления, на которое забронирован кандидат"""
+        """ Редактирование заблокированной заявки неавторизованным пользователем."""
         set_is_final(self.slave_application_main, True)
         response = self.client.put(reverse('application-detail', args=(self.slave_application_main.id,)),
                                    data=self.correct_application_data)
@@ -515,3 +515,21 @@ class ApplicationsTest(APITestCase):
         response = self.client.post(reverse('application-view-application', args=(self.slave_application_main.id,)))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(has_application_viewed(self.slave_application_main, self.master_user.member))
+
+    def test_export_applications_by_slave(self):
+        """Экспорт списка анкет кандидатом"""
+        self.client.force_login(user=self.slave_application.member.user)
+        response = self.client.get(reverse('application-export-applications-list'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_applications_by_master(self):
+        """Экспорт списка анкет мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('application-export-applications-list'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get('Content-Type'), "application/xlsx")
+
+    def test_export_applications_by_unauthorized_user(self):
+        """Экспорт списка анкет неавторизованным пользователем"""
+        response = self.client.get(reverse('application-export-applications-list'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

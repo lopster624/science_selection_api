@@ -233,10 +233,8 @@ class Education(models.Model):
         return f'{self.application.member.user.first_name} {self.application.member.user.last_name}: {self.get_education_type_display()}'
 
     def check_name_uni(self):
+        """Проверяет, что имя университета уникально."""
         return True if Universities.objects.filter(name=self.university).exists() else False
-
-    def get_education_type_display(self):
-        return next(name for ed_type, name in self.education_program if ed_type == self.education_type)
 
     class Meta:
         verbose_name = "Образование"
