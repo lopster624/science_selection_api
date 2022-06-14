@@ -236,6 +236,9 @@ class EducationViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            # queryset just for schema generation metadata
+            return Education.objects.none()
         return Education.objects.filter(application=self.kwargs['application_pk'])
 
     def perform_create(self, serializer):
@@ -259,6 +262,9 @@ class ApplicationNoteViewSet(viewsets.ModelViewSet, DataApplicationMixin):
     permission_classes = [IsMasterPermission]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            # queryset just for schema generation metadata
+            return ApplicationNote.objects.none()
         return ApplicationNote.objects.filter(application=self.kwargs['application_pk'],
                                               affiliations__in=self.get_master_affiliations_id()) \
             .select_related('author__user').prefetch_related('affiliations').distinct()
@@ -323,6 +329,9 @@ class BookingViewSet(PermissionPolicyMixin, viewsets.ModelViewSet):
         return self.serializers.get(self.action, self.default_master_serializer_class)
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            # queryset just for schema generation metadata
+            return Booking.objects.none()
         application = Application.objects.get(pk=self.kwargs['application_pk'])
         return Booking.objects.filter(slave=application.member, booking_type=get_booked_type())
 
@@ -357,6 +366,9 @@ class WishlistViewSet(viewsets.ModelViewSet):
         return self.serializers.get(self.action, self.default_master_serializer_class)
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            # queryset just for schema generation metadata
+            return Booking.objects.none()
         application = Application.objects.get(pk=self.kwargs['application_pk'])
         return Booking.objects.filter(slave=application.member, booking_type=get_in_wishlist_type())
 
