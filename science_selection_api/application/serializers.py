@@ -323,8 +323,24 @@ class CompetenceDetailSerializer(serializers.ModelSerializer):
         return directions
 
 
+class CompetenceListSerializer(serializers.ModelSerializer):
+    """Компетенция."""
+
+    class Meta:
+        model = Competence
+        fields = ('name', 'id')
+
+
+class CompetenceNameSerializer(serializers.ModelSerializer):
+    """Компетенция."""
+
+    class Meta:
+        model = Competence
+        fields = ('name',)
+
+
 class CompetenceSerializer(serializers.ModelSerializer):
-    """Компетенция без уровня владения"""
+    """Компетенция."""
 
     class Meta:
         model = Competence
@@ -333,11 +349,19 @@ class CompetenceSerializer(serializers.ModelSerializer):
 
 class ApplicationCompetenciesSerializer(serializers.ModelSerializer):
     """Выводит оцененную компетенцию"""
-    competence = CompetenceSerializer()
+    competence = CompetenceListSerializer()
 
     class Meta:
         model = ApplicationCompetencies
         fields = ('level', 'competence')
+
+
+class ApplicationShortCompetenciesSerializer(ApplicationCompetenciesSerializer):
+    """
+    Оцененная компетенция.
+    Уровень владения и название.
+    """
+    competence = CompetenceNameSerializer()
 
 
 class ApplicationCompetenciesCreateSerializer(serializers.ModelSerializer):
@@ -440,3 +464,20 @@ class FileSerializer(serializers.ModelSerializer):
         fields = '__all__'
         extra_kwargs = {'file_path': {'write_only': True}, 'is_template': {'read_only': True},
                         'file_name': {'read_only': True}}
+
+
+class WorkingListSerializer(ApplicationMasterListSerializer):
+    """
+    Рабочий список.
+    В нем отображаются все анкеты с их компетенциями.
+    """
+    competences = ApplicationShortCompetenciesSerializer(many=True, source='rated_competences')
+
+    class Meta:
+        model = Application
+        fields = (
+            'id', 'directions', 'draft_season', 'birth_day', 'birth_place', 'draft_year', 'fullness', 'final_score',
+            'member', 'education', 'is_booked', 'is_booked_our', 'can_unbook', 'wishlist_len', 'is_in_wishlist',
+            'our_direction', 'subject', 'available_booking_direction', 'booking', 'wishlist', 'notes', 'is_viewed',
+            'competences'
+        )

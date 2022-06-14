@@ -3,7 +3,7 @@ from django.shortcuts import redirect
 
 from account.models import Affiliation
 from application.models import Competence, Direction
-from utils.exceptions import MasterHasNoDirectionsException, NoHTTPReferer
+from utils.exceptions import MasterHasNoDirectionsException
 
 
 class PermissionPolicyMixin:
@@ -41,14 +41,6 @@ class DataApplicationMixin:
 
     def get_master_directions_id(self):
         return self.get_master_affiliations().values_list('direction__id', flat=True)
-
-    def get_redirect_on_previous_page(self, request):
-        """Возвращает редирект на предыдущую страницу или вызывает ошибку NoHTTPReferer"""
-        http_referer = request.META.get('HTTP_REFERER', None)
-        if http_referer:
-            return redirect(http_referer)
-        else:
-            raise NoHTTPReferer('Вернитесь на предыдущую страницу и повторите действие.')
 
     def check_master_has_affiliation(self, affiliation_id, error_message):
         """Вызывает ошибку PermissionDenied с текстом error_message,

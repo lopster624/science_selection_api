@@ -350,6 +350,14 @@ def has_application_viewed(application, member):
     return ViewedApplication.objects.filter(member=member, application=application).exists()
 
 
+def get_chosen_affiliation_id(request):
+    """Возвращает выбранную принадлежность из get или выдает ошибку."""
+    chosen_competence = request.GET.get('affiliation', None)
+    if not chosen_competence:
+        raise ParseError('Необходимо добавить обязательный query параметр affiliation!')
+    return chosen_competence
+
+
 class NumberInFilter(BaseInFilter, NumberFilter):
     pass
 
@@ -359,9 +367,9 @@ class ApplicationFilter(FilterSet):
     draft_year = AllValuesMultipleFilter(field_name='draft_year')
     directions = NumberInFilter(field_name='directions__id', lookup_expr='in')
     draft_season = NumberInFilter(field_name='draft_season', lookup_expr='in')
-    booking_aff = NumberInFilter(label='Отобрано во взвод',
+    booking_aff = NumberInFilter(label='Отобраны во взвод',
                                  method='filter_booking_aff')  # id affiliation, на которые отобраны заявки
-    wishlist_aff = NumberInFilter(label='Избранное во взвод',
+    wishlist_aff = NumberInFilter(label='Избранны для взводов',
                                   method='filter_wishlist_aff')  # id affiliation, для которых заявки добавлены в вишлист
 
     def filter_booking_aff(self, queryset, name, value):
@@ -395,6 +403,35 @@ class ApplicationFilter(FilterSet):
     class Meta:
         model = Application
         fields = ('directions', 'booking_aff', 'wishlist_aff', 'draft_season', 'draft_year')
+
+
+class WorkingListFilter(FilterSet):
+    """Фильтр анкет в рабочем списке."""
+    draft_year = AllValuesMultipleFilter(field_name='draft_year')
+    directions = NumberInFilter(field_name='directions__id', lookup_expr='in')
+    draft_season = NumberInFilter(field_name='draft_season', lookup_expr='in')
+    booking_type = NumberInFilter(label='Тип бронирования',
+                                  method='filter_booking_type')  # id брони
+    affiliation = NumberFilter(field_name='directions__affiliation__id')
+
+    def filter_booking_type(self, queryset, name, value):
+        """
+        Фильтрует queryset.
+
+        Оставялет только те заявки, которые были отобраны на принадлежность affiliation с типом брони в value.
+        :param queryset: исходный queryset
+        :param name: имя query-параметра
+        :param value: список id типов бронирования
+        :return: отфильтрованный queryset
+        """
+        booked_members = Booking.objects.filter(
+            affiliation__in=get_chosen_affiliation_id(self.request),
+            booking_type__id__in=value).values_list('slave', flat=True)
+        return queryset.filter(member_id__in=booked_members).distinct()
+
+    class Meta:
+        model = Application
+        fields = ('directions', 'booking_type', 'draft_season', 'draft_year', 'affiliation')
 
 
 class CustomOrderingFilter(OrderingFilter):
@@ -466,8 +503,10 @@ class ApplicationExporter:
         """Конвертирует заявки рабочего листа в нужный формат."""
         full_name = self._get_full_name(app)
         user_competencies = self._get_user_competencies(app)
-        return [full_name, app.member.phone, app.member.user.email, app.final_score, app.university, app.specialization,
-                ', '.join(user_competencies[3]), ', '.join(user_competencies[2]), ', '.join(user_competencies[1])]
+        university, education_type, specialization, avg_score = self._get_education_info(app)
+        return [full_name, app.member.phone, app.member.user.email, app.final_score, university, education_type,
+                specialization, avg_score, ', '.join(user_competencies[3]), ', '.join(user_competencies[2]),
+                ', '.join(user_competencies[1])]
 
     def _get_user_competencies(self, app):
         """Преобразовывает компетенции заявок в нужный формат и возвращает их."""
@@ -476,7 +515,7 @@ class ApplicationExporter:
             2: [],
             1: [],
         }
-        for comp in app.app_competence.all():
+        for comp in app.rated_competences:
             competence_levels[comp.level].append(comp.competence.name)
         return competence_levels
 

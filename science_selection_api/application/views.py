@@ -1,13 +1,13 @@
 import os
 
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status, serializers, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
-from rest_framework.filters import SearchFilter
+from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -29,13 +29,13 @@ from application.serializers import ChooseDirectionSerializer, \
     ApplicationCompetenciesSerializer, CompetenceDetailSerializer, \
     BookingSerializer, BookingCreateSerializer, WorkGroupSerializer, ApplicationIsFinalSerializer, \
     WorkGroupDetailSerializer, CompetenceSerializer, ApplicationNoteSerializer, ViewedApplicationSerializer, \
-    FileSerializer, ApplicationMasterListSerializer, BookingDetailSerializer
+    FileSerializer, ApplicationMasterListSerializer, BookingDetailSerializer, WorkingListSerializer
 from application.utils import get_booked_type, get_in_wishlist_type, get_master_affiliations_id, \
     get_application_as_word, get_service_file, update_user_application_scores, set_work_group, set_is_final, \
     has_affiliation, get_competence_list, parse_str_to_bool, remove_direction_from_competence_list, \
     add_direction_to_competence_list, has_application_viewed, PaginationApplication, ApplicationFilter, \
     CustomOrderingFilter, ApplicationExporter, get_applications_by_master, get_applications_by_slave, is_master, \
-    is_slave
+    is_slave, WorkingListFilter, get_chosen_affiliation_id
 from utils import constants as const
 
 """
@@ -66,7 +66,7 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
     ordering_fields = ['member__user__last_name', 'birth_place', 'subject', 'final_score', 'fullness']
     ordering = ['-our_direction']
     search_fields = ['member__user__first_name', 'member__user__last_name', 'member__father_name',
-                     'education__university', 'subject', 'education__specialization']
+                     'education__university', 'subject', 'education__specialization', 'birth_place']
 
     master_serializers = {
         'get_chosen_direction_list': DirectionDetailSerializer,
@@ -108,7 +108,7 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
     }
 
     def get_queryset(self):
-        # создать несколько методов получения разных queryset для разных ролей
+        """Возвращает разные queryset для разных ролей."""
         if is_master(self.request.user):
             apps = get_applications_by_master(self.request.user, self.get_master_affiliations(),
                                               self.get_master_directions(), self.get_master_directions_id())
@@ -118,7 +118,6 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
             apps = Application.objects.all()
         return apps
 
-    # todo: проверить, как расширенный аннотированный queryset работает с другими методами
     def get_serializer_class(self):
         if is_slave(self.request.user):
             return self.slave_serializers.get(self.action, self.default_slave_serializer_class)
@@ -134,11 +133,10 @@ class ApplicationViewSet(PermissionPolicyMixin, DataApplicationMixin, viewsets.M
         serializer.save()
         update_user_application_scores(pk=self.kwargs['pk'])
 
-        # todo: написать тесты к этому методу
-
     @action(detail=False, methods=['get'], url_path='export')
     def export_applications_list(self, request):
         """Сохраняет список заявок в exel файл и возвращает его."""
+        # queryset = self.filter_queryset(self.get_queryset())
         queryset = self.get_queryset()
         excel_from_apps = ApplicationExporter(queryset)
         excel_file = excel_from_apps.add_applications_to_sheet()
@@ -292,7 +290,7 @@ class CompetenceViewSet(PermissionPolicyMixin, viewsets.ModelViewSet, DataApplic
         'create': [IsMasterPermission, ],
     }
     serializer_class = CompetenceDetailSerializer
-    queryset = Competence.objects.all()
+    queryset = Competence.objects.all().prefetch_related('child__child__child')
     http_method_names = ['get', 'post', 'head', 'options', 'trace']
 
     def create(self, request, *args, **kwargs):
@@ -392,7 +390,8 @@ class WorkGroupViewSet(viewsets.ModelViewSet):
         return self.serializers.get(self.action, self.default_serializer_class)
 
     def get_queryset(self):
-        return WorkGroup.objects.filter(affiliation__in=get_master_affiliations_id(self.request.user.member))
+        return WorkGroup.objects.filter(
+            affiliation__in=get_master_affiliations_id(self.request.user.member)).select_related('affiliation')
 
     def perform_create(self, serializer):
         """Сохраняет рабочую группу, передав юзера для проверки принадлежности"""
@@ -454,6 +453,46 @@ class FileViewSet(mixins.CreateModelMixin,
         if instance.member != self.request.user.member:
             raise PermissionDenied('Удалять файл может только его создатель.')
         instance.delete()
+
+
+class WorkingListViewSet(DataApplicationMixin, mixins.ListModelMixin, GenericViewSet):
+    """Рабочий список."""
+    permission_classes = [IsMasterPermission, ]
+    serializer_class = WorkingListSerializer
+
+    pagination_class = PaginationApplication
+    filter_backends = [DjangoFilterBackend, OrderingFilter, SearchFilter]
+
+    filterset_class = WorkingListFilter
+    ordering_fields = ['member__user__last_name', 'birth_place', 'subject']
+    ordering = ['member__user__last_name']
+    search_fields = ['member__user__first_name', 'member__user__last_name', 'member__father_name',
+                     'education__university', 'subject', 'education__specialization', 'birth_place']
+
+    def get_queryset(self):
+        chosen_affiliation_id = get_chosen_affiliation_id(self.request)
+        chosen_direction = Direction.objects.get(affiliation__id=chosen_affiliation_id)
+        apps = get_applications_by_master(self.request.user, self.get_master_affiliations(),
+                                          self.get_master_directions(), self.get_master_directions_id())
+        apps = apps.prefetch_related(
+            Prefetch(
+                "app_competence",
+                queryset=ApplicationCompetencies.objects.filter(competence__directions=chosen_direction,
+                                                                level__in=[1, 2, 3]).select_related('competence'),
+                to_attr='rated_competences'
+            ))
+
+        return apps
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_working_list(self, request):
+        """Сохраняет рабочей список заявок в exel файл и возвращает его."""
+        queryset = self.filter_queryset(self.get_queryset())
+        excel_from_apps = ApplicationExporter(queryset)
+        excel_file = excel_from_apps.add_work_list_to_sheet()
+        response = FileResponse(excel_file, content_type='application/xlsx')
+        response['Content-Disposition'] = 'attachment; filename="' + escape_uri_path('Рабочий лист.xlsx') + '"'
+        return response
 
 
 class DownloadServiceDocuments(APIView):

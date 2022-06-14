@@ -12,7 +12,7 @@ from rest_framework.test import APITestCase
 from application.models import Application, Competence
 from application.tests.factories import UserFactory, RoleFactory, DirectionFactory, AffiliationFactory, MemberFactory, \
     create_uniq_application, WorkGroupFactory, create_uniq_member, CompetenceFactory, ApplicationNoteFactory, \
-    FileFactory
+    FileFactory, BookingTypeFactory, BookingFactory, create_batch_competences_scores
 from utils import constants as const
 
 logging.disable(logging.FATAL)
@@ -763,3 +763,93 @@ class FileViewSetTest(APITestCase):
         response = self.client.delete(
             reverse('files-detail', args=(self.main_template_files[0].id,)))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class WorkingListTest(APITestCase):
+    """Тестирование рабочего списка заявок."""
+
+    def setUp(self) -> None:
+        # создаем мастера
+        self.master_user = UserFactory.create()
+        self.master_second_user = UserFactory.create()
+        self.master_role = master_role = RoleFactory.create(role_name=const.MASTER_ROLE_NAME)
+
+        direction1 = DirectionFactory.create()
+        self.main_affiliation = affiliation = AffiliationFactory.create(direction=direction1)
+        self.master_member = MemberFactory.create(affiliations=[affiliation, ], role=master_role, user=self.master_user)
+        self.master_second_member = MemberFactory.create(affiliations=[affiliation, ], role=master_role,
+                                                         user=self.master_second_user)
+
+        # создаем заявки
+        slave_role = RoleFactory.create(role_name=const.SLAVE_ROLE_NAME)
+        for i in range(4):
+            create_uniq_application(slave_role, directions=DirectionFactory.create_batch(3))
+        self.slave_application = create_uniq_application(slave_role, directions=DirectionFactory.create_batch(3))
+        self.slave_application_main = create_uniq_application(slave_role, directions=[direction1])
+
+        self.slave_user_without_app = UserFactory.create()
+        MemberFactory.create(role=slave_role, user=self.slave_user_without_app)
+        # создаем бронирование
+        booked = BookingTypeFactory.create()
+        BookingFactory.create(master=self.master_second_member, slave=self.slave_application_main.member,
+                              affiliation=self.main_affiliation, booking_type=booked)
+        # создаем рабочую группу
+        self.main_work_group = WorkGroupFactory.create(affiliation=self.main_affiliation)
+        self.another_work_group = WorkGroupFactory.create(
+            affiliation=AffiliationFactory.create(direction=DirectionFactory.create()))
+
+        # создаем компетенции с оценками
+        main_competence = create_batch_competences_scores(count=3,
+                                                          application=self.slave_application_main)
+        create_batch_competences_scores(count=10, directions=[direction1], application=self.slave_application_main,
+                                        parent=main_competence.pop())
+
+    def test_working_list_by_master_without_query(self):
+        """Получение рабочего списка заявок мастером без query-параметра affiliation"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('working-list'))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_working_list_by_unauthorized_user(self):
+        """Получение рабочего списка заявок неавторизованным пользователем"""
+        response = self.client.get(reverse('working-list'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_working_list_by_slave(self):
+        """Получение рабочего списка заявок кандидатом"""
+        self.client.force_login(user=self.slave_application.member.user)
+        response = self.client.get(reverse('working-list'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_working_list_by_master(self):
+        """Получение рабочего списка заявок мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('working-list') + '?' + urlencode(
+            {'affiliation': self.main_affiliation.id}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data.get('results')), 1)
+
+    def test_export_work_list_by_slave(self):
+        """Экспорт списка анкет кандидатом"""
+        self.client.force_login(user=self.slave_application.member.user)
+        response = self.client.get(reverse('working-export-working-list'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_work_list_by_master(self):
+        """Экспорт списка анкет мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('working-export-working-list'))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_export_work_list_by_unauthorized_user(self):
+        """Экспорт списка анкет неавторизованным пользователем"""
+        response = self.client.get(reverse('working-export-working-list'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_work_list_by_master_with_correct_query_param(self):
+        """Экспорт списка анкет мастером"""
+        self.client.force_login(user=self.master_user)
+        response = self.client.get(reverse('working-export-working-list') + '?' + urlencode(
+            {'affiliation': self.main_affiliation.id}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get('Content-Type'), "application/xlsx")

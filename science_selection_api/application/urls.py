@@ -4,7 +4,7 @@ from rest_framework_nested import routers
 
 from .views import DirectionsViewSet, ApplicationViewSet, EducationViewSet, CompetenceViewSet, BookingViewSet, \
     WishlistViewSet, WorkGroupViewSet, DownloadServiceDocuments, DirectionsCompetences, ApplicationNoteViewSet, \
-    FileViewSet
+    FileViewSet, WorkingListViewSet
 
 router = DefaultRouter()
 router.register(r'directions', DirectionsViewSet)
@@ -12,6 +12,7 @@ router.register(r'applications', ApplicationViewSet, basename='application')
 router.register(r'competences', CompetenceViewSet)
 router.register(r'files', FileViewSet, basename='files')
 router.register(r'work-groups', WorkGroupViewSet, basename='work-groups')
+router.register(r'working-list', WorkingListViewSet, basename='working')
 
 domains_router = routers.NestedSimpleRouter(router, r'applications', lookup='application')
 domains_router.register(r'educations', EducationViewSet, basename='educations')
